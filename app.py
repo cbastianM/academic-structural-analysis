@@ -12,7 +12,6 @@ import glob
 
 st.set_page_config(
     page_title="ANALISIS ESTRUCTURAL ACADÉMICO",
-    layout="wide",
     page_icon=None,
     initial_sidebar_state="expanded",
     layout="centered",  # ← Cambiar "wide" por "centered"
