@@ -1,5 +1,4 @@
 [theme]
-# Tema claro (por defecto)
 primaryColor = "#1f567d"
 backgroundColor = "#ffffff"
 secondaryBackgroundColor = "#f0f2f6"
@@ -7,8 +6,33 @@ textColor = "#262730"
 font = "sans serif"
 
 [theme.dark]
-# Tema oscuro
 primaryColor = "#4a9eff"
 backgroundColor = "#0e1117"
 secondaryBackgroundColor = "#262730"
 textColor = "#fafafa"
+
+[server]
+runOnSave = false
+port = 8501
+address = "0.0.0.0"
+maxUploadSize = 500
+enableXsrfProtection = true
+enableCORS = false
+sessionExpirationSeconds = 3600
+enableWebsocketCompression = true
+
+[client.caching]
+cacheType = "disk"
+maxEntries = 5000
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = false
+maxCacheMessageSize = 200
+
+[logger]
+level = "info"
+messageFormat = "%(asctime)s [%(levelname)s] %(message)s"
+
+[browser]
+gatherUsageStats = false
