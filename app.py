@@ -15,6 +15,7 @@ st.set_page_config(
     layout="wide",
     page_icon=None,
     initial_sidebar_state="expanded"
+    layout="centered",  # ← Cambiar "wide" por "centered"
 )
 
 
