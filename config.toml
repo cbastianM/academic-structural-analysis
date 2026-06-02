@@ -1,0 +1,14 @@
+[theme]
+# Tema claro (por defecto)
+primaryColor = "#1f567d"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f2f6"
+textColor = "#262730"
+font = "sans serif"
+
+[theme.dark]
+# Tema oscuro
+primaryColor = "#4a9eff"
+backgroundColor = "#0e1117"
+secondaryBackgroundColor = "#262730"
+textColor = "#fafafa"
