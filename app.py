@@ -6,105 +6,22 @@ import numpy as np
 from Pynite import FEModel3D
 from datetime import datetime
 import pandas as pd
+import sympy as sp
+from pathlib import Path
+import glob
 
 st.set_page_config(
-    page_title="ACADEMIC STRUCTURAL ANALYSIS",
+    page_title="ANALISIS ESTRUCTURAL ACADÉMICO",
     layout="wide",
-    page_icon="🏗️",
+    page_icon=None,
     initial_sidebar_state="expanded"
 )
 
-# ──────────────────────────────────────────────────────────────
-# 🎨 Estilos CSS personalizados
-# ──────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-    /* Tema principal */
-    :root {
-        --primary-color: #1e3a5f;
-        --secondary-color: #3498db;
-        --accent-color: #e74c3c;
-        --success-color: #27ae60;
-        --bg-light: #f8f9fa;
-        --text-color: #2c3e50;
-    }
 
-    /* Encabezados */
-    h1, h2, h3 {
-        color: var(--primary-color);
-        font-weight: 600;
-    }
 
-    /* Contenedores de métricas */
-    div[data-testid="stMetric"] {
-        background-color: #ffffff;
-        border: 1px solid #e0e0e0;
-        border-radius: 10px;
-        padding: 15px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-
-    /* Botones primarios */
-    .stButton > button[kind="primary"] {
-        background-color: var(--secondary-color);
-        color: white;
-        border-radius: 8px;
-        border: none;
-        padding: 10px 20px;
-        font-weight: 500;
-    }
-
-    /* Sidebar styling */
-    [data-testid="stSidebar"] {
-        background-color: #f0f2f6;
-    }
-
-    /* Tabs styling */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 8px 8px 0 0;
-        padding: 10px 20px;
-        background-color: #e8e8e8;
-    }
-    .stTabs [data-baseweb="tab"]:hover {
-        background-color: #d0d0d0;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: var(--secondary-color) !important;
-        color: white !important;
-    }
-
-    /* Success/Info boxes */
-    .success-box {
-        padding: 15px;
-        border-radius: 8px;
-        background-color: #d4edda;
-        border: 1px solid #c3e6cb;
-        color: #155724;
-    }
-
-    /* Card styling */
-    .card {
-        background-color: white;
-        border-radius: 10px;
-        padding: 20px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        margin-bottom: 15px;
-    }
-
-    /* Expander styling */
-    .streamlit-expanderHeader {
-        background-color: #f0f2f6;
-        border-radius: 8px;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# ──────────────────────────────────────────────────────────────
-# 🧠 Estado de sesión
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
+#  Estado de sesión
+# --------------------------------------------------------------
 if "beam_data" not in st.session_state:
     st.session_state.beam_data = {
         "version": "3.0.0",
@@ -123,6 +40,44 @@ if "beam_data" not in st.session_state:
 if "solved_model" not in st.session_state:
     st.session_state.solved_model = None
 
+if "modelo_cargado" not in st.session_state:
+    seleccionado = Path(__file__).parent / "ejemplos" / "_seleccionado.json"
+    if seleccionado.exists():
+        try:
+            with open(seleccionado, "r", encoding="utf-8") as _f:
+                st.session_state.beam_data = json.load(_f)
+            seleccionado.unlink()
+            st.session_state.pagina = "app"
+        except Exception:
+            pass
+    st.session_state.modelo_cargado = True
+
+# Migrar formato antiguo de cargas distribuidas (start_node/end_node -> element_id)
+def migrar_distribuidas(beam_data):
+    beam = beam_data.get("beam", beam_data)
+    distribuidas = beam.get("loads", {}).get("distributed", [])
+    elements = beam.get("elements", [])
+    for dl in distribuidas:
+        if "start_node" in dl and "end_node" in dl and "element_id" not in dl:
+            sn = dl["start_node"]
+            en = dl["end_node"]
+            elem = next((e for e in elements if e["start_node"] == sn and e["end_node"] == en), None)
+            if elem:
+                dl["element_id"] = elem["id"]
+                del dl["start_node"]
+                del dl["end_node"]
+
+def beam_data_actual():
+    return st.session_state.beam_data
+
+try:
+    migrar_distribuidas(st.session_state.beam_data)
+except (AttributeError, KeyError):
+    pass
+
+if "pagina" not in st.session_state:
+    st.session_state.pagina = "home"
+
 if "history" not in st.session_state:
     st.session_state.history = []
 
@@ -132,9 +87,75 @@ if "history_index" not in st.session_state:
 data = st.session_state.beam_data["beam"]
 materials = st.session_state.beam_data["materials"]
 
-# ──────────────────────────────────────────────────────────────
-# 📁 Funciones de historial (Undo/Redo)
-# ──────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------
+# ----------------------------------------------------------------
+#  PÁGINA DE INICIO
+# ----------------------------------------------------------------
+if st.session_state.pagina == "home":
+
+    st.markdown("<h1 style='text-align: center; font-family: \"Palatino Linotype\", \"Book Antiqua\", Palatino, serif; letter-spacing: 2px;'>ANÁLISIS ESTRUCTURAL ACADÉMICO</h1>", unsafe_allow_html=True)
+
+    st.markdown("<p style='text-align: center; font-family: \"Segoe Script\", \"Comic Sans MS\", cursive; font-size: 1.2rem; color: gray; margin-top: -10px;'>Sebastian M.</p>", unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("VIGAS", type="primary", use_container_width=True):
+            st.session_state.pagina = "app"
+            st.rerun()
+    with col2:
+        if st.button("CERCHAS", use_container_width=True):
+            st.warning("Proximamente.")
+    with col3:
+        if st.button("PORTICOS", use_container_width=True):
+            st.warning("Proximamente.")
+
+    st.divider()
+    st.markdown("### Modelos de ejemplo")
+
+    autores = [
+        ("hibbeler", "Hibbeler"),
+        ("kassimali", "Kassimali"),
+        ("millan", "Millán"),
+        ("causil", "Causil"),
+    ]
+
+    autor_models = {}
+    for key, label in autores:
+        folder = Path(__file__).parent / "ejemplos" / key
+        files = sorted(folder.glob("*.json")) if folder.exists() else []
+        models = []
+        for fp in files:
+            try:
+                with open(fp, "r", encoding="utf-8") as f:
+                    models.append((fp.stem, json.load(f)))
+            except Exception:
+                continue
+        autor_models[key] = models
+
+    for i in range(0, len(autores), 2):
+        cols = st.columns(2)
+        for j in range(2):
+            if i + j < len(autores):
+                key, label = autores[i + j]
+                with cols[j]:
+                    models = autor_models.get(key, [])
+                    with st.expander(f"**{label}**", expanded=False):
+                        if not models:
+                            st.caption("Sin modelos disponibles.")
+                        else:
+                            for stem, model_data in models:
+                                nombre = model_data.get("name", stem)
+                                if st.button(nombre, key=f"hm_{key}_{stem}", use_container_width=True):
+                                    st.session_state.beam_data = model_data
+                                    st.session_state.solved_model = None
+                                    st.session_state.pagina = "app"
+                                    st.rerun()
+
+    st.stop()
+
+# ----------------------------------------------------------------
+#  Funciones de historial (Undo/Redo)
+# ----------------------------------------------------------------
 def save_to_history():
     """Guarda el estado actual en el historial"""
     snapshot = json.dumps(st.session_state.beam_data)
@@ -168,31 +189,14 @@ def redo():
 if not st.session_state.history:
     save_to_history()
 
-# ──────────────────────────────────────────────────────────────
-# 🔧 Funciones utilitarias
-# ──────────────────────────────────────────────────────────────
-def auto_generate_elements():
-    data["elements"] = []
-    data["nodes"].sort(key=lambda n: n["x"])
-    for i, n in enumerate(data["nodes"]):
-        n["id"] = i + 1
-
-    for i in range(len(data["nodes"]) - 1):
-        n1, n2 = data["nodes"][i]["id"], data["nodes"][i + 1]["id"]
-        data["elements"].append({
-            "id": i + 1,
-            "start_node": n1,
-            "end_node": n2,
-            "E": materials["E_default"],
-            "A": materials["A_default"],
-            "I": materials["I_default"]
-        })
-
+# --------------------------------------------------------------
+#  Funciones utilitarias
+# --------------------------------------------------------------
 def add_node(x):
     """Añade un nodo y guarda en historial"""
-    new_id = len(data["nodes"]) + 1
+    used_ids = [n["id"] for n in data["nodes"]]
+    new_id = max(used_ids) + 1 if used_ids else 1
     data["nodes"].append({"id": new_id, "x": float(x)})
-    auto_generate_elements()
     st.session_state.solved_model = None
     save_to_history()
 
@@ -201,11 +205,37 @@ def remove_node(node_id):
     data["nodes"] = [nd for nd in data["nodes"] if nd["id"] != node_id]
     data["supports"] = [s for s in data["supports"] if s["node_id"] != node_id]
     data["loads"]["point"] = [l for l in data["loads"]["point"] if l["node_id"] != node_id]
+    deleted_elements = [e["id"] for e in data["elements"] if e["start_node"] == node_id or e["end_node"] == node_id]
+    data["elements"] = [e for e in data["elements"] if e["start_node"] != node_id and e["end_node"] != node_id]
     data["loads"]["distributed"] = [
         l for l in data["loads"]["distributed"]
-        if l["start_node"] != node_id and l["end_node"] != node_id
+        if l.get("element_id") not in deleted_elements
     ]
-    auto_generate_elements()
+    st.session_state.solved_model = None
+    save_to_history()
+
+def add_element(start_node, end_node):
+    """Añade un elemento conectando dos nodos"""
+    used_ids = [e["id"] for e in data["elements"]]
+    new_id = max(used_ids) + 1 if used_ids else 1
+    data["elements"].append({
+        "id": new_id,
+        "start_node": start_node,
+        "end_node": end_node,
+        "E": materials["E_default"],
+        "A": materials["A_default"],
+        "I": materials["I_default"]
+    })
+    st.session_state.solved_model = None
+    save_to_history()
+
+def remove_element(element_id):
+    """Elimina un elemento"""
+    data["elements"] = [e for e in data["elements"] if e["id"] != element_id]
+    data["loads"]["distributed"] = [
+        l for l in data["loads"]["distributed"]
+        if l.get("element_id") != element_id
+    ]
     st.session_state.solved_model = None
     save_to_history()
 
@@ -230,11 +260,10 @@ def add_point_load(node_id, fy):
     st.session_state.solved_model = None
     save_to_history()
 
-def add_distributed_load(start_node, end_node, w_start, w_end):
-    """Añade una carga distribuida"""
+def add_distributed_load(element_id, w_start, w_end):
+    """Añade una carga distribuida sobre un elemento"""
     data["loads"]["distributed"].append({
-        "start_node": start_node,
-        "end_node": end_node,
+        "element_id": element_id,
         "w_start": float(w_start),
         "w_end": float(w_end),
         "direction": "y"
@@ -254,9 +283,9 @@ def remove_distributed_load(index):
     st.session_state.solved_model = None
     save_to_history()
 
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 # Constructor del modelo PyNite
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 def _combo_value(values, combo="Combo 1"):
     """Devuelve un valor numerico desde los diccionarios de resultados de PyNite."""
     if isinstance(values, dict):
@@ -346,8 +375,14 @@ class PyNiteBeamModel:
             self._add_distributed_load(dl)
 
     def _add_distributed_load(self, dl):
-        n_start = self._node_by_id(dl["start_node"])
-        n_end = self._node_by_id(dl["end_node"])
+        eid = dl.get("element_id")
+        if eid is None:
+            return
+        elem = next((e for e in self.data["elements"] if e["id"] == eid), None)
+        if not elem:
+            return
+        n_start = self._node_by_id(elem["start_node"])
+        n_end = self._node_by_id(elem["end_node"])
         if not n_start or not n_end:
             return
 
@@ -355,22 +390,14 @@ class PyNiteBeamModel:
         x_end = float(n_end["x"])
         if x_start == x_end:
             return
-        x_min, x_max = sorted([x_start, x_end])
 
         def q_at(x):
             ratio = (x - x_start) / (x_end - x_start)
             return float(dl["w_start"]) + ratio * (float(dl["w_end"]) - float(dl["w_start"]))
 
-        for e in self.data["elements"]:
-            n1 = self._node_by_id(e["start_node"])
-            n2 = self._node_by_id(e["end_node"])
-            if not n1 or not n2:
-                continue
-            ex1, ex2 = sorted([float(n1["x"]), float(n2["x"])])
-            if ex1 >= x_min and ex2 <= x_max:
-                member_name = self.member_names.get(e["id"])
-                if member_name:
-                    self.model.add_member_dist_load(member_name, "FY", q_at(ex1), q_at(ex2), 0, ex2 - ex1)
+        member_name = self.member_names.get(eid)
+        if member_name:
+            self.model.add_member_dist_load(member_name, "FY", q_at(x_start), q_at(x_end), 0, x_end - x_start)
 
     def solve(self):
         self.model.analyze_linear(log=False)
@@ -428,20 +455,114 @@ class PyNiteBeamModel:
         )
 
     def show_bending_moment(self):
-        return self._plot_result(
-            "Diagrama de Momento Flector",
-            "M (kN*m)",
-            lambda member, x: float(member.moment("Mz", x)),
-            color="#c0392b",
-        )
+        fig, ax = plt.subplots(figsize=(12, 5))
+        all_x = []
+
+        for e in self.data["elements"]:
+            n1 = self._node_by_id(e["start_node"])
+            member_name = self.member_names.get(e["id"])
+            if not n1 or not member_name:
+                continue
+            x0 = float(n1["x"])
+            xs_local = self._member_points(member_name)
+            xs_global = x0 + xs_local
+            ys = [float(self.model.members[member_name].moment("Mz", x)) for x in xs_local]
+            all_x.extend(xs_global)
+            ax.plot(xs_global, ys, color="#c0392b", linewidth=2)
+            ax.fill_between(xs_global, ys, 0, color="#c0392b", alpha=0.18)
+
+        ax.axhline(0, color="#333333", linewidth=1)
+        ax.set_title("Diagrama de Momento Flector", fontsize=14, fontweight="bold", pad=15)
+        ax.set_xlabel("X (m)")
+        ax.set_ylabel("M (kN*m)")
+        ax.grid(True, alpha=0.3, linestyle="--")
+        if all_x:
+            ax.set_xlim(min(all_x), max(all_x))
+        return fig
+
+    def get_bending_moment_stats(self):
+        abs_max_moment = 0.0
+        abs_max_x = None
+        abs_max_member = None
+
+        for e in self.data["elements"]:
+            n1 = self._node_by_id(e["start_node"])
+            member_name = self.member_names.get(e["id"])
+            if not n1 or not member_name:
+                continue
+            x0 = float(n1["x"])
+            length = self.member_lengths.get(member_name, 0.0)
+            member_obj = self.model.members[member_name]
+            for x_local in np.linspace(0, length, 60):
+                try:
+                    m = abs(float(member_obj.moment("Mz", x_local)))
+                    x_global = x0 + x_local
+                    if m > abs_max_moment:
+                        abs_max_moment = m
+                        abs_max_x = x_global
+                        abs_max_member = e["id"]
+                except:
+                    pass
+
+        return {
+            "abs_max_moment": abs_max_moment,
+            "abs_max_x": abs_max_x,
+            "abs_max_member": abs_max_member,
+        }
 
     def show_displacement(self):
-        return self._plot_result(
-            "Diagrama de Deflexion",
-            "dy (m)",
-            lambda member, x: float(member.deflection("dy", x)),
-            color="#27ae60",
-        )
+        fig, ax = plt.subplots(figsize=(12, 5))
+        all_x = []
+        all_y_mm = []
+
+        for e in self.data["elements"]:
+            n1 = self._node_by_id(e["start_node"])
+            member_name = self.member_names.get(e["id"])
+            if not n1 or not member_name:
+                continue
+            x0 = float(n1["x"])
+            xs_local = self._member_points(member_name)
+            xs_global = x0 + xs_local
+            ys_mm = [float(self.model.members[member_name].deflection("dy", x)) * 1000 for x in xs_local]
+            all_x.extend(xs_global)
+            all_y_mm.extend(ys_mm)
+            ax.plot(xs_global, ys_mm, color="#27ae60", linewidth=2)
+            ax.fill_between(xs_global, ys_mm, 0, color="#27ae60", alpha=0.18)
+
+        ax.axhline(0, color="#333333", linewidth=1)
+        ax.set_title("Diagrama de Deflexion", fontsize=14, fontweight="bold", pad=15)
+        ax.set_xlabel("X (m)")
+        ax.set_ylabel("dy (mm)")
+        ax.grid(True, alpha=0.3, linestyle="--")
+        if all_x:
+            ax.set_xlim(min(all_x), max(all_x))
+        return fig
+
+    def get_displacement_stats(self):
+        abs_max_disp_mm = 0.0
+        abs_max_node = None
+
+        for e in self.data["elements"]:
+            n1 = self._node_by_id(e["start_node"])
+            member_name = self.member_names.get(e["id"])
+            if not n1 or not member_name:
+                continue
+            x0 = float(n1["x"])
+            xs_local = self._member_points(member_name, count=120)
+            for x in xs_local:
+                try:
+                    d = abs(float(self.model.members[member_name].deflection("dy", x)) * 1000)
+                    xg = x0 + x
+                    if d > abs_max_disp_mm:
+                        abs_max_disp_mm = d
+                        abs_max_node = f"E{e['id']} @ x={xg:.2f}m"
+                except:
+                    pass
+
+        return {
+            "abs_max_disp_mm": abs_max_disp_mm,
+            "abs_max_node": abs_max_node,
+        }
 
     def show_reaction_force(self):
         fig, ax = plt.subplots(figsize=(12, 5))
@@ -561,23 +682,39 @@ class PyNiteBeamModel:
                         ha="center", va="center", fontsize=9, color="#c0392b", fontweight="bold")
 
             for load in self.data["loads"]["distributed"]:
-                n1 = self._node_by_id(load["start_node"])
-                n2 = self._node_by_id(load["end_node"])
+                eid = load.get("element_id")
+                elem = next((e for e in self.data["elements"] if e["id"] == eid), None)
+                if not elem:
+                    continue
+                n1 = self._node_by_id(elem["start_node"])
+                n2 = self._node_by_id(elem["end_node"])
                 if not n1 or not n2:
                     continue
                 x1, x2 = sorted([float(n1["x"]), float(n2["x"])])
-                avg_load = (float(load["w_start"]) + float(load["w_end"])) / 2
-                sign = -1 if avg_load < 0 else 1
-                start_y = -sign * y_scale * 0.58
-                end_y = -sign * y_scale * 0.04
-                for x in np.linspace(x1, x2, 8):
-                    ax.arrow(x, start_y, 0, end_y - start_y,
-                             head_width=y_scale * 0.085, head_length=y_scale * 0.085,
-                             length_includes_head=True, color="#e67e22", linewidth=1.4)
-                ax.plot([x1, x2], [start_y, start_y], color="#e67e22", linewidth=1.5)
-                ax.text((x1 + x2) / 2, start_y - sign * y_scale * 0.18,
-                        f"{load['w_start']:.2f} a {load['w_end']:.2f} kN/m",
-                        ha="center", va="center", fontsize=9, color="#d35400", fontweight="bold")
+                w_start = float(load["w_start"])
+                w_end = float(load["w_end"])
+                max_abs_w = max(abs(w_start), abs(w_end), 1e-12)
+                scale = y_scale * 0.58 / max_abs_w
+                h1 = -w_start * scale
+                h2 = -w_end * scale
+                env_color = "#e67e22"
+                ax.plot([x1, x2], [h1, h2], color=env_color, linewidth=1.5, zorder=3)
+                n_arrows = max(3, int(round((x2 - x1) / 0.5)))
+                for x in np.linspace(x1, x2, n_arrows):
+                    ratio = (x - x1) / (x2 - x1) if x2 != x1 else 0
+                    h = h1 + ratio * (h2 - h1)
+                    if abs(h) < 1e-12:
+                        continue
+                    arr_h = min(y_scale * 0.085, abs(h) * 0.6)
+                    arr_l = arr_h
+                    ax.arrow(x, h, 0, -h,
+                             head_width=arr_h, head_length=arr_l,
+                             length_includes_head=True, color=env_color, linewidth=1.4, zorder=3)
+                w_label = f"{w_start:.2f} kN/m" if abs(w_start - w_end) < 1e-10 else f"{w_start:.2f} a {w_end:.2f} kN/m"
+                label_offset = y_scale * 0.18
+                label_y = (h1 + h2) / 2 + (label_offset if (h1 + h2) >= 0 else -label_offset)
+                ax.text((x1 + x2) / 2, label_y, w_label,
+                        ha="center", va="center", fontsize=9, color="#d35400", fontweight="bold", zorder=4)
 
         ax.set_xlim(min(xs) - y_scale * 1.2, max(xs) + y_scale * 1.2)
         ax.set_ylim(-y_scale * 1.25, y_scale * 1.25)
@@ -590,9 +727,107 @@ class PyNiteBeamModel:
 def build_pynite_model(data):
     return PyNiteBeamModel(data)
 
-# ──────────────────────────────────────────────────────────────
-# 📊 Funciones de visualización mejoradas
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
+#  Funciones del método matricial de rigidez
+# --------------------------------------------------------------
+def matriz_local(L, max_dof, a, b, c, d, EI=1):
+    K11 =  12 * EI / L**3
+    K12 =   6 * EI / L**2
+    K13 = -12 * EI / L**3
+    K14 =   6 * EI / L**2
+    K21 =   6 * EI / L**2
+    K22 =   4 * EI / L
+    K23 =  -6 * EI / L**2
+    K24 =   2 * EI / L
+    K31 = -12 * EI / L**3
+    K32 =  -6 * EI / L**2
+    K33 =  12 * EI / L**3
+    K34 =  -6 * EI / L**2
+    K41 =   6 * EI / L**2
+    K42 =   2 * EI / L
+    K43 =  -6 * EI / L**2
+    K44 =   4 * EI / L
+
+    K = sp.Matrix.zeros(max_dof, max_dof)
+    filas = [a - 1, b - 1, c - 1, d - 1]
+    local = sp.Matrix([
+        [K11, K12, K13, K14],
+        [K21, K22, K23, K24],
+        [K31, K32, K33, K34],
+        [K41, K42, K43, K44],
+    ])
+    for i in range(4):
+        for j in range(4):
+            K[filas[i], filas[j]] += local[i, j]
+    return K.evalf(4)
+
+
+def vector_fuerzas_puntual(P, dist, L, max_dof, a, b, c, d):
+    bb = L - dist
+    f1 = P * bb**2 * (3 * dist + bb) / L**3
+    f2 = P * dist * bb**2 / L**2
+    f3 = P * dist**2 * (dist + 3 * bb) / L**3
+    f4 = -P * dist**2 * bb / L**2
+    local = sp.Matrix([f1, f2, f3, f4])
+    F = sp.Matrix.zeros(max_dof, 1)
+    filas = [a - 1, b - 1, c - 1, d - 1]
+    for i in range(4):
+        F[filas[i], 0] += local[i]
+    return F
+
+
+def vector_fuerzas_lineal(q, L, max_dof, a, b, c, d):
+    f1 = q * L / 2
+    f2 = q * L**2 / 12
+    f3 = q * L / 2
+    f4 = -q * L**2 / 12
+    local = sp.Matrix([f1, f2, f3, f4])
+    F = sp.Matrix.zeros(max_dof, 1)
+    filas = [a - 1, b - 1, c - 1, d - 1]
+    for i in range(4):
+        F[filas[i], 0] += local[i]
+    return F
+
+
+def vector_fuerzas_trapecio(q1, q2, L, max_dof, a, b, c, d):
+    local = sp.Matrix([
+        q1 * L / 2 + 3 * (q2 - q1) * L / 20,
+        q1 * L**2 / 12 + (q2 - q1) * L**2 / 30,
+        q1 * L / 2 + 7 * (q2 - q1) * L / 20,
+        -q1 * L**2 / 12 - (q2 - q1) * L**2 / 20,
+    ])
+    F = sp.Matrix.zeros(max_dof, 1)
+    filas = [a - 1, b - 1, c - 1, d - 1]
+    for i in range(4):
+        F[filas[i], 0] += local[i]
+    return F
+
+def compact_matrix(mat):
+    n = mat.rows
+    indices = [
+        i for i in range(n)
+        if not (all(mat[i, j] == 0 for j in range(n)) and
+                all(mat[j, i] == 0 for j in range(n)))
+    ]
+    m = len(indices)
+    new_mat = sp.Matrix.zeros(m, m)
+    for i_new, i_orig in enumerate(indices):
+        for j_new, j_orig in enumerate(indices):
+            new_mat[i_new, j_new] = mat[i_orig, j_orig]
+    return new_mat, indices
+
+def matrix_to_df(mat, row_indices, col_indices=None, precision=3):
+    if col_indices is None:
+        col_indices = row_indices
+    row_labels = [f"GDL {idx + 1}" for idx in row_indices]
+    col_labels = [f"GDL {idx + 1}" for idx in col_indices]
+    data = [[float(mat[i, j]) for j in range(mat.cols)] for i in range(mat.rows)]
+    df = pd.DataFrame(data, index=row_labels, columns=col_labels)
+    return df.map(lambda x: f"{x:.{precision}f}")
+
+# --------------------------------------------------------------
+# Funciones de visualización mejoradas
+# --------------------------------------------------------------
 def plot_and_display(ss, plot_func, title, color_scheme='default'):
     """Función genérica para plotear y mostrar gráficos"""
     try:
@@ -613,15 +848,19 @@ def plot_and_display(ss, plot_func, title, color_scheme='default'):
         st.error(f"Error al generar {title}: {e}")
         return False
 
-# ──────────────────────────────────────────────────────────────
-# 📋 Ejemplos predefinidos
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
+#  Ejemplos predefinidos
+# --------------------------------------------------------------
 EXAMPLE_PROJECTS = {
     "Viga simplemente apoyada": {
         "nodes": [
             {"id": 1, "x": 0.0},
             {"id": 2, "x": 3.0},
             {"id": 3, "x": 6.0}
+        ],
+        "elements": [
+            {"id": 1, "start_node": 1, "end_node": 2, "E": 200000000.0, "A": 0.01, "I": 5e-05},
+            {"id": 2, "start_node": 2, "end_node": 3, "E": 200000000.0, "A": 0.01, "I": 5e-05}
         ],
         "supports": [
             {"node_id": 1, "type": "Articulado"},
@@ -638,6 +877,10 @@ EXAMPLE_PROJECTS = {
             {"id": 2, "x": 4.0},
             {"id": 3, "x": 6.0}
         ],
+        "elements": [
+            {"id": 1, "start_node": 1, "end_node": 2, "E": 200000000.0, "A": 0.01, "I": 5e-05},
+            {"id": 2, "start_node": 2, "end_node": 3, "E": 200000000.0, "A": 0.01, "I": 5e-05}
+        ],
         "supports": [
             {"node_id": 1, "type": "Empotrado"}
         ],
@@ -652,33 +895,18 @@ EXAMPLE_PROJECTS = {
     "Viga con carga distribuida": {
         "nodes": [
             {"id": 1, "x": 0.0},
-            {"id": 2, "x": 2.5},
-            {"id": 3, "x": 5.0}
+            {"id": 2, "x": 5.0}
+        ],
+        "elements": [
+            {"id": 1, "start_node": 1, "end_node": 2, "E": 200000000.0, "A": 0.01, "I": 5e-05}
         ],
         "supports": [
             {"node_id": 1, "type": "Articulado"},
-            {"node_id": 3, "type": "Rodillo"}
+            {"node_id": 2, "type": "Rodillo"}
         ],
         "loads": {
             "point": [],
-            "distributed": [{"start_node": 1, "end_node": 3, "w_start": -5.0, "w_end": -5.0, "direction": "y"}]
-        }
-    },
-    "Pórtico simple": {
-        "nodes": [
-            {"id": 1, "x": 0.0},
-            {"id": 2, "x": 5.0},
-            {"id": 3, "x": 5.0}
-        ],
-        "supports": [
-            {"node_id": 1, "type": "Empotrado"},
-            {"node_id": 3, "type": "Empotrado"}
-        ],
-        "loads": {
-            "point": [
-                {"node_id": 2, "fx": 0.0, "fy": -20.0, "mz": 0.0}
-            ],
-            "distributed": []
+            "distributed": [{"element_id": 1, "w_start": -5.0, "w_end": -5.0, "direction": "y"}]
         }
     }
 }
@@ -687,44 +915,31 @@ def load_example(example_name):
     """Carga un ejemplo predefinido"""
     if example_name in EXAMPLE_PROJECTS:
         example_data = json.loads(json.dumps(EXAMPLE_PROJECTS[example_name]))
-        nodes = sorted(example_data["nodes"], key=lambda n: n["x"])
-        for i, node in enumerate(nodes):
-            node["id"] = i + 1
-
-        elements = []
-        for i in range(len(nodes) - 1):
-            elements.append({
-                "id": i + 1,
-                "start_node": nodes[i]["id"],
-                "end_node": nodes[i + 1]["id"],
-                "E": materials["E_default"],
-                "A": materials["A_default"],
-                "I": materials["I_default"]
-            })
 
         st.session_state.beam_data["beam"] = {
-            "nodes": nodes,
-            "elements": elements,
+            "nodes": example_data["nodes"],
+            "elements": example_data.get("elements", []),
             "supports": example_data["supports"],
             "loads": example_data["loads"]
         }
         st.session_state.solved_model = None
         save_to_history()
-        st.success(f"✅ Ejemplo '{example_name}' cargado")
+        st.success(f"Ejemplo '{example_name}' cargado")
 
-# ════════════════════════════════════════════════════════════════
-# 🛠️ BARRA LATERAL
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
+# BARRA LATERAL
+# ----------------------------------------------------------------
 with st.sidebar:
-    st.markdown("## 🧰 Panel de Herramientas")
+    st.markdown("##  Panel de Herramientas")
 
-    # ─── Navegación entre secciones ───
+    # --- Navegación entre secciones ---
     sections = {
-        "📍 Nodos": "nodes",
-        "🧱 Apoyos": "supports",
-        "⬇️ Cargas": "loads",
-        "⚙️ Materiales": "materials",
-        "📂 Proyecto": "project"
+        " Nodos": "nodes",
+        " Apoyos": "supports",
+        " Elementos": "elements",
+        " Cargas": "loads",
+        " Materiales": "materials",
+        " Proyecto": "project"
     }
 
     selected_section = st.radio(
@@ -735,11 +950,11 @@ with st.sidebar:
 
     st.divider()
 
-    # ────────────────────────────────────────────────────────────
-    # 📍 SECCIÓN: NODOS
-    # ────────────────────────────────────────────────────────────
-    if selected_section == "📍 Nodos":
-        st.markdown("### 📍 Gestión de Nodos")
+    # ------------------------------------------------------------
+    #  SECCIÓN: NODOS
+    # ------------------------------------------------------------
+    if selected_section == " Nodos":
+        st.markdown("###  Gestión de Nodos")
 
         with st.container():
             col1, col2 = st.columns([3, 1])
@@ -770,9 +985,9 @@ with st.sidebar:
                 has_load = any(l["node_id"] == n["id"] for l in data["loads"]["point"])
                 status = []
                 if has_support:
-                    status.append("🔗 Apoyo")
+                    status.append(" Apoyo")
                 if has_load:
-                    status.append("⚡ Carga")
+                    status.append("Carga")
                 node_data.append({
                     "ID": f"N{n['id']}",
                     "X (m)": n["x"],
@@ -790,21 +1005,21 @@ with st.sidebar:
                 format_func=lambda x: f"N{x}",
                 label_visibility="collapsed"
             )
-            if nodes_to_delete and st.button("🗑️ Eliminar seleccionados", type="primary"):
+            if nodes_to_delete and st.button("Eliminar seleccionados", type="primary"):
                 for nid in nodes_to_delete:
                     remove_node(nid)
                 st.rerun()
 
-    # ────────────────────────────────────────────────────────────
-    # 🧱 SECCIÓN: APOYOS
-    # ────────────────────────────────────────────────────────────
-    elif selected_section == "🧱 Apoyos":
-        st.markdown("### 🧱 Asignar Apoyos")
+    # ------------------------------------------------------------
+    #  SECCIÓN: APOYOS
+    # ------------------------------------------------------------
+    elif selected_section == " Apoyos":
+        st.markdown("###  Asignar Apoyos")
 
         node_ids = [n["id"] for n in sorted(data["nodes"], key=lambda x: x["id"])]
 
         if not node_ids:
-            st.warning("⚠️ Añada nodos primero en la sección Nodos.")
+            st.warning(" Añada nodos primero en la sección Nodos.")
         else:
             col1, col2 = st.columns(2)
             s_node = col1.selectbox("Nodo", node_ids, format_func=lambda x: f"N{x}")
@@ -812,9 +1027,9 @@ with st.sidebar:
 
             # Iconos para cada tipo
             type_icons = {
-                "Empotrado": "🔒",
-                "Articulado": "🔺",
-                "Rodillo": "⚙️"
+                "Empotrado": "",
+                "Articulado": "",
+                "Rodillo": ""
             }
 
             if st.button(f"{type_icons[s_type]} Asignar Apoyo", use_container_width=True):
@@ -850,9 +1065,9 @@ with st.sidebar:
             # Leyenda de símbolos
             st.markdown("""
             **Leyenda:**
-            - 🔒 Empotrado: Fija traslación y rotación
-            - 🔺 Articulado: Fija ambas translaciones
-            - ⚙️ Rodillo: Fija una traslación (vertical)
+            -  Empotrado: Fija traslación y rotación
+            -  Articulado: Fija ambas translaciones
+            -  Rodillo: Fija una traslación (vertical)
             """)
 
             # Eliminar apoyo
@@ -862,20 +1077,72 @@ with st.sidebar:
                 format_func=lambda x: f"N{x}",
                 key="del_support_select"
             )
-            if st.button("🗑️ Eliminar apoyo", type="primary"):
+            if st.button("Eliminar apoyo", type="primary"):
                 remove_support(support_to_delete)
                 st.rerun()
 
-    # ────────────────────────────────────────────────────────────
-    # ⬇️ SECCIÓN: CARGAS
-    # ────────────────────────────────────────────────────────────
-    elif selected_section == "⬇️ Cargas":
-        st.markdown("### ⬇️ Aplicar Cargas")
+    # ------------------------------------------------------------
+    #  SECCIÓN: ELEMENTOS
+    # ------------------------------------------------------------
+    elif selected_section == " Elementos":
+        st.markdown("### Gestion de Elementos")
+
+        node_ids = [n["id"] for n in sorted(data["nodes"], key=lambda x: x["id"])]
+
+        if len(node_ids) < 2:
+            st.warning("Añada al menos 2 nodos primero en la seccion Nodos.")
+        else:
+            col1, col2 = st.columns(2)
+            sn = col1.selectbox("Nodo inicial", node_ids, format_func=lambda x: f"N{x}", key="elem_start")
+            en = col2.selectbox("Nodo final", node_ids, format_func=lambda x: f"N{x}", key="elem_end")
+            if sn == en:
+                st.warning("Los nodos deben ser diferentes.")
+            else:
+                if st.button("Anadir Elemento", use_container_width=True):
+                    add_element(sn, en)
+                    st.rerun()
+
+        st.divider()
+        st.markdown("**Elementos definidos:**")
+
+        if not data["elements"]:
+            st.info("No hay elementos. Defina al menos un elemento.")
+        else:
+            elem_data = []
+            for e in sorted(data["elements"], key=lambda x: x["id"]):
+                n1 = next((n for n in data["nodes"] if n["id"] == e["start_node"]), None)
+                n2 = next((n for n in data["nodes"] if n["id"] == e["end_node"]), None)
+                x1 = n1["x"] if n1 else "?"
+                x2 = n2["x"] if n2 else "?"
+                elem_data.append({
+                    "ID": f"E{e['id']}",
+                    "Nodos": f"N{e['start_node']} - N{e['end_node']}",
+                    "X (m)": f"{x1} - {x2}",
+                })
+
+            df_elems = pd.DataFrame(elem_data)
+            st.dataframe(df_elems, use_container_width=True, hide_index=True)
+
+            elem_to_del = st.selectbox(
+                "Eliminar elemento",
+                options=[e["id"] for e in data["elements"]],
+                format_func=lambda x: f"E{x}",
+                key="del_elem_select"
+            )
+            if st.button("Eliminar elemento", type="primary"):
+                remove_element(elem_to_del)
+                st.rerun()
+
+    # ------------------------------------------------------------
+    #  SECCIÓN: CARGAS
+    # ------------------------------------------------------------
+    elif selected_section == " Cargas":
+        st.markdown("###  Aplicar Cargas")
 
         node_ids = [n["id"] for n in sorted(data["nodes"], key=lambda x: x["id"])]
 
         if not node_ids:
-            st.warning("⚠️ Añada nodos primero.")
+            st.warning(" Añada nodos primero.")
         else:
             load_type = st.radio(
                 "Tipo de carga",
@@ -893,33 +1160,27 @@ with st.sidebar:
                 with col_info[0]:
                     st.markdown("**Signo:**")
                 with col_info[1]:
-                    st.markdown("⬆️ Positivo = Hacia arriba<br>⬇️ Negativo = Hacia abajo", unsafe_allow_html=True)
+                    st.markdown(" Positivo = Hacia arriba<br> Negativo = Hacia abajo", unsafe_allow_html=True)
 
-                if st.button("⚡ Aplicar Carga Puntual", use_container_width=True):
+                if st.button("Aplicar Carga Puntual", use_container_width=True):
                     add_point_load(p_node, fy)
                     st.success(f"Carga puntual de {fy} kN aplicada en N{p_node}")
                     st.rerun()
 
             else:  # Distribuida
-                if len(node_ids) < 2:
-                    st.warning("Se necesitan al menos 2 nodos para carga distribuida.")
+                if not data["elements"]:
+                    st.warning("Defina elementos primero en la seccion Elementos.")
                 else:
-                    col1, col2 = st.columns(2)
-                    n1 = col1.selectbox("Nodo Inicio", node_ids, format_func=lambda x: f"N{x}")
-                    n2 = col2.selectbox("Nodo Fin", node_ids, format_func=lambda x: f"N{x}")
-
-                    col3, col4 = st.columns(2)
-                    w1 = col3.number_input("q inicio (kN/m)", value=-5.0, step=0.5)
-                    w2 = col4.number_input("q fin (kN/m)", value=-5.0, step=0.5)
-
-                    if st.button("📊 Aplicar Carga Distribuida", use_container_width=True):
-                        if n1 != n2:
-                            start, end = (n1, n2) if n1 < n2 else (n2, n1)
-                            add_distributed_load(start, end, w1, w2)
-                            st.success(f"Carga distribuida de {w1} a {w2} kN/m aplicada")
-                            st.rerun()
-                        else:
-                            st.error("Seleccione nodos diferentes")
+                    elem_options = {f"E{e['id']} (N{e['start_node']}-N{e['end_node']})": e["id"] for e in data["elements"]}
+                    sel_elem_label = st.selectbox("Elemento", options=list(elem_options.keys()), index=0)
+                    sel_elem_id = elem_options[sel_elem_label]
+                    col_q1, col_q2 = st.columns(2)
+                    w1 = col_q1.number_input("q inicio (kN/m)", value=-5.0, step=0.5)
+                    w2 = col_q2.number_input("q fin (kN/m)", value=-5.0, step=0.5)
+                    if st.button(" Aplicar Carga Distribuida", use_container_width=True):
+                        add_distributed_load(sel_elem_id, w1, w2)
+                        st.success(f"Carga distribuida de {w1} a {w2} kN/m aplicada en E{sel_elem_id}")
+                        st.rerun()
 
         st.divider()
 
@@ -937,28 +1198,32 @@ with st.sidebar:
             st.markdown("**Cargas Puntuales:**")
             for i, l in enumerate(data["loads"]["point"]):
                 col1, col2 = st.columns([4, 1])
-                col1.markdown(f"• **N{l['node_id']}**: {l['fy']} kN ⬇️" if l['fy'] < 0 else f"• **N{l['node_id']}**: {l['fy']} kN ⬆️")
-                if col2.button("🗑️", key=f"del_pt_{i}"):
+                col1.markdown(f"**N{l['node_id']}**: {l['fy']} kN" + (" (abajo)" if l['fy'] < 0 else " (arriba)"))
+                if col2.button("X", key=f"del_pt_{i}"):
                     remove_point_load(i)
                     st.rerun()
 
         if total_dist > 0:
             st.markdown("**Cargas Distribuidas:**")
             for i, l in enumerate(data["loads"]["distributed"]):
+                eid = l.get("element_id", "?")
+                elem = next((e for e in data["elements"] if e["id"] == eid), None)
+                w_label = f"{l['w_start']} kN/m" if abs(float(l['w_start']) - float(l['w_end'])) < 1e-10 else f"{l['w_start']} a {l['w_end']} kN/m"
+                label = f"**E{eid}**" + (f" (N{elem['start_node']}-N{elem['end_node']})" if elem else "") + f": {w_label}"
                 col1, col2 = st.columns([4, 1])
-                col1.markdown(f"• **N{l['start_node']} → N{l['end_node']}**: {l['w_start']} a {l['w_end']} kN/m")
-                if col2.button("🗑️", key=f"del_dist_{i}"):
+                col1.markdown(label)
+                if col2.button("X", key=f"del_dist_{i}"):
                     remove_distributed_load(i)
                     st.rerun()
 
         if total_point == 0 and total_dist == 0:
             st.info("No hay cargas definidas.")
 
-    # ────────────────────────────────────────────────────────────
-    # ⚙️ SECCIÓN: MATERIALES
-    # ────────────────────────────────────────────────────────────
-    elif selected_section == "⚙️ Materiales":
-        st.markdown("### ⚙️ Propiedades de Materiales")
+    # ------------------------------------------------------------
+    #  SECCIÓN: MATERIALES
+    # ------------------------------------------------------------
+    elif selected_section == " Materiales":
+        st.markdown("###  Propiedades de Materiales")
 
         st.info("Configuración de propiedades por defecto para nuevos elementos")
 
@@ -984,7 +1249,7 @@ with st.sidebar:
             materials["A_default"] = A
 
         I = st.number_input(
-            "Inercia I (m⁴)",
+            "Inercia I (m4)",
             value=materials["I_default"],
             step=0.00001,
             format="%.6f",
@@ -1009,11 +1274,11 @@ with st.sidebar:
                 st.success(f"Sección {name} aplicada")
                 st.rerun()
 
-    # ────────────────────────────────────────────────────────────
-    # 📂 SECCIÓN: PROYECTO
-    # ────────────────────────────────────────────────────────────
-    elif selected_section == "📂 Proyecto":
-        st.markdown("### 📂 Gestión de Proyecto")
+    # ------------------------------------------------------------
+    #  SECCIÓN: PROYECTO
+    # ------------------------------------------------------------
+    elif selected_section == " Proyecto":
+        st.markdown("###  Gestión de Proyecto")
 
         # Nombre del proyecto
         project_name = st.text_input(
@@ -1024,36 +1289,12 @@ with st.sidebar:
 
         st.divider()
 
-        # Acciones rápidas
-        st.markdown("**Acciones rápidas:**")
-
-        col_undo, col_redo = st.columns(2)
-        with col_undo:
-            can_undo = st.session_state.history_index > 0
-            st.button("↩️ Deshacer", disabled=not can_undo, use_container_width=True, on_click=undo)
-        with col_redo:
-            can_redo = st.session_state.history_index < len(st.session_state.history) - 1
-            st.button("↪️ Rehacer", disabled=not can_redo, use_container_width=True, on_click=redo)
-
-        if st.button("🧨 Borrar Todo", type="primary", use_container_width=True):
-            st.session_state.beam_data["beam"] = {
-                "nodes": [],
-                "elements": [],
-                "supports": [],
-                "loads": {"point": [], "distributed": []}
-            }
-            st.session_state.solved_model = None
-            save_to_history()
-            st.rerun()
-
-        st.divider()
-
         # Guardar/Cargar
         st.markdown("**Guardar/Cargar:**")
 
         json_str = json.dumps(st.session_state.beam_data, indent=2)
         st.download_button(
-            "💾 Descargar Modelo (JSON)",
+            " Descargar Modelo (JSON)",
             json_str,
             file_name=f"modelo_{project_name.replace(' ', '_')}.json",
             mime="application/json",
@@ -1061,7 +1302,7 @@ with st.sidebar:
         )
 
         uploaded_file = st.file_uploader(
-            "📤 Cargar Modelo (JSON)",
+            " Cargar Modelo (JSON)",
             type=["json"],
             help="Seleccione un archivo JSON previamente guardado"
         )
@@ -1070,7 +1311,8 @@ with st.sidebar:
             try:
                 loaded_data = json.load(uploaded_file)
                 if "beam" in loaded_data and "nodes" in loaded_data["beam"]:
-                    if st.button("✅ Confirmar carga"):
+                    migrar_distribuidas(loaded_data)
+                    if st.button("Confirmar carga"):
                         st.session_state.beam_data = loaded_data
                         st.session_state.solved_model = None
                         save_to_history()
@@ -1079,48 +1321,61 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Error al cargar: {e}")
 
-        st.divider()
-
-        # Ejemplos
-        st.markdown("**📚 Ejemplos Predefinidos:**")
-
-        for name in EXAMPLE_PROJECTS.keys():
-            if st.button(f"📐 {name}", use_container_width=True):
-                load_example(name)
-                st.rerun()
-
-# ════════════════════════════════════════════════════════════════
-# 🖥️ ÁREA PRINCIPAL
-# ════════════════════════════════════════════════════════════════
-st.markdown("# ACADEMIC STRUCTURAL ANALYSIS")
+# ----------------------------------------------------------------
+# ÁREA PRINCIPAL
+# ----------------------------------------------------------------
+    st.markdown("# ANÁLISIS ESTRUCTURAL ACADÉMICO")
 st.markdown(f"**Proyecto:** {st.session_state.beam_data.get('name', 'Sin nombre')} | **Versión:** {st.session_state.beam_data['version']}")
 
-# ─── Barra de acciones superiores ───
-top_col1, top_col2 = st.columns([1, 4])
+# --- Barra de acciones superiores ---
+top_col1, top_col2 = st.columns([1, 0.5])
 
 with top_col1:
-    solve_btn = st.button("▶️ Resolver Modelo", type="primary", use_container_width=True)
+    solve_btn = st.button(" Resolver Modelo", type="primary", use_container_width=True)
+with top_col2:
+    if st.button("🏠", use_container_width=True, help="Volver al Inicio"):
+        st.session_state.pagina = "home"
+        st.rerun()
 
-# ─── Resolver modelo ───
+undo_col1, undo_col2, undo_col3 = st.columns([1, 1, 1])
+with undo_col1:
+    can_undo = st.session_state.history_index > 0
+    st.button(" Deshacer", disabled=not can_undo, use_container_width=True, on_click=undo)
+with undo_col2:
+    can_redo = st.session_state.history_index < len(st.session_state.history) - 1
+    st.button(" Rehacer", disabled=not can_redo, use_container_width=True, on_click=redo)
+with undo_col3:
+    if st.button(" Borrar Todo", type="secondary", use_container_width=True):
+        st.session_state.beam_data["beam"] = {
+            "nodes": [],
+            "elements": [],
+            "supports": [],
+            "loads": {"point": [], "distributed": []}
+        }
+        st.session_state.solved_model = None
+        save_to_history()
+        st.rerun()
+
+# --- Resolver modelo ---
 if solve_btn:
     if not data["nodes"]:
-        st.error("⚠️ Defina al menos un nodo para resolver.")
+        st.error(" Defina al menos un nodo para resolver.")
     elif not data["supports"]:
-        st.error("⚠️ Defina al menos un apoyo para resolver.")
+        st.error(" Defina al menos un apoyo para resolver.")
     elif len(data["nodes"]) < 2:
-        st.error("⚠️ Se necesitan al menos 2 nodos para formar un elemento.")
+        st.error(" Se necesitan al menos 2 nodos para formar un elemento.")
     else:
-        with st.spinner("🔄 Calculando... por favor espere"):
+        with st.spinner(" Calculando... por favor espere"):
             try:
                 ss = build_pynite_model(data)
                 ss.solve()
                 st.session_state.solved_model = ss
 
                 # Mostrar métricas de resultados
-                st.success("✅ Modelo resuelto correctamente")
+                st.success("Modelo resuelto correctamente")
 
             except Exception as e:
-                st.error(f"❌ Error en el cálculo: {str(e)}")
+                st.error(f"Error en el cálculo: {str(e)}")
                 import traceback
                 with st.expander("Detalles del error"):
                     st.code(traceback.format_exc())
@@ -1128,14 +1383,14 @@ if solve_btn:
 
 st.divider()
 
-# ─── Pestañas de visualización ───
-tab_struct, tab_results, tab_data = st.tabs([
-    "🏗️ Estructura",
-    "📈 Diagramas",
-    "📋 Datos Numéricos"
+# --- Pestañas de visualización ---
+tab_struct, tab_results, tab_matrix = st.tabs([
+    "Estructura",
+    " Diagramas",
+    " Método Matricial"
 ])
 
-# ─── 1. Vista de Estructura ───
+# --- 1. Vista de Estructura ---
 with tab_struct:
     if data["nodes"]:
         try:
@@ -1159,7 +1414,7 @@ with tab_struct:
             fig_preview.savefig(buf, format='png', dpi=150, bbox_inches='tight')
             buf.seek(0)
             st.download_button(
-                "📥 Descargar gráfico como PNG",
+                " Descargar gráfico como PNG",
                 buf,
                 file_name="estructura.png",
                 mime="image/png",
@@ -1169,14 +1424,14 @@ with tab_struct:
         except Exception as e:
             st.error(f"Error al dibujar la estructura: {e}")
     else:
-        st.info("👈 Utilice el panel lateral para añadir nodos, apoyos y cargas.")
+        st.info(" Utilice el panel lateral para añadir nodos, apoyos y cargas.")
 
-# ─── 2. Diagramas de Resultados ───
+# --- 2. Diagramas de Resultados ---
 with tab_results:
     ss = st.session_state.solved_model
 
     if not ss:
-        st.info("⬆️ Presione **Resolver Modelo** para generar los diagramas de resultados.")
+        st.info(" Presione **Resolver Modelo** para generar los diagramas de resultados.")
     else:
         # Selector de diagrama
         diagram_type = st.radio(
@@ -1190,15 +1445,40 @@ with tab_results:
         elif diagram_type == "Fuerza Cortante (V)":
             plot_and_display(ss, ss.show_shear_force, "Diagrama de Fuerza Cortante")
         elif diagram_type == "Momento Flector (M)":
-            plot_and_display(ss, ss.show_bending_moment, "Diagrama de Momento Flector")
+            try:
+                fig_moment = ss.show_bending_moment()
+                st.pyplot(fig_moment)
+                plt.close(fig_moment)
+
+                stats_m = ss.get_bending_moment_stats()
+                st.markdown("---")
+                st.markdown("###  Momento Flector Maximo Absoluto")
+                st.metric(
+                    "Momento maximo",
+                    f"{stats_m['abs_max_moment']:.4f} kN*m",
+                    delta=f"X = {stats_m['abs_max_x']:.2f} m" if stats_m['abs_max_x'] is not None else None
+                )
+            except:
+                st.warning("No se pudo generar el diagrama de momento flector")
         elif diagram_type == "Deflexión":
             try:
-                plot_and_display(ss, ss.show_displacement, "Diagrama de Deflexión")
+                fig_disp = ss.show_displacement()
+                st.pyplot(fig_disp)
+                plt.close(fig_disp)
+
+                stats = ss.get_displacement_stats()
+                st.markdown("---")
+                st.markdown("###  Desplazamiento Maximo Absoluto")
+                st.metric(
+                    "Desplazamiento maximo",
+                    f"{stats['abs_max_disp_mm']:.4f} mm",
+                    delta=stats['abs_max_node'] if stats['abs_max_node'] else None
+                )
             except:
                 st.warning("No se pudo generar el diagrama de deflexión")
 
         # Descargar diagrama
-        if st.button("📥 Descargar diagrama", use_container_width=True):
+        if st.button(" Descargar diagrama", use_container_width=True):
             fig = plt.gcf()
             buf = io.BytesIO()
             fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
@@ -1210,123 +1490,471 @@ with tab_results:
                 mime="image/png"
             )
 
-# ─── 3. Datos Numéricos ───
-with tab_data:
-    ss = st.session_state.solved_model
+# --- 3. Método Matricial ---
+with tab_matrix:
+    st.markdown("##  Método Matricial de Rigidez")
+    st.markdown("Se calculan las matrices de rigidez y el vector de fuerzas a partir de la estructura definida en el panel lateral.")
 
-    if not ss:
-        st.info("⬆️ Resuelva el modelo primero para ver los datos numéricos.")
+    if not data["nodes"] or len(data["nodes"]) < 2:
+        st.info(" Define al menos 2 nodos en el panel lateral primero.")
+    elif not data["elements"]:
+        st.info(" Define al menos un elemento (2 nodos) en el panel lateral.")
+    elif not data["supports"]:
+        st.warning(" Define al menos un apoyo para poder resolver el sistema.")
     else:
-        # Obtener datos del modelo resuelto
-        st.markdown("### 📋 Resultados Detallados")
+        all_nodes = sorted(data["nodes"], key=lambda x: x["x"])
+        node_x_map = {n["id"]: n["x"] for n in data["nodes"]}
 
-        # Información del modelo
-        with st.expander("📐 Información del Modelo", expanded=True):
-            info_col1, info_col2, info_col3 = st.columns(3)
-            info_col1.metric("Nodos", len(data["nodes"]))
-            info_col2.metric("Elementos", len(data["elements"]))
-            info_col3.metric("Apoyos", len(data["supports"]))
+        max_dof = 2 * len(all_nodes)
+        dof_map = {}
+        for i, node in enumerate(all_nodes):
+            dof_map[node["id"]] = (2 * i + 1, 2 * i + 2)
 
-            # Propiedades de material
-            st.markdown("**Propiedades de Material:**")
-            mat_col1, mat_col2, mat_col3 = st.columns(3)
-            mat_col1.metric("E", f"{materials['E_default']/1000:.0f} MN/m²")
-            mat_col2.metric("A", f"{materials['A_default']*10000:.2f} cm²")
-            mat_col3.metric("I", f"{materials['I_default']*1e8:.2f} cm⁴")
+        constrained_dofs = []
+        dof_data = []
+        for node in all_nodes:
+            v_dof, r_dof = dof_map[node["id"]]
+            support = next((s for s in data["supports"] if s["node_id"] == node["id"]), None)
+            support_type = support["type"] if support else "Libre"
 
-        # Tabla de reacciones
-        st.markdown("### 🔄 Reacciones en Apoyos")
-        try:
-            reactions = ss.reaction_force
-            if reactions:
-                reaction_data = []
-                for node_id, values in sorted(reactions.items()):
-                    if isinstance(values, dict):
-                        reaction_data.append({
-                            "Nodo": f"N{node_id}",
-                            "Fx (kN)": round(values.get('Fx', 0), 4),
-                            "Fy (kN)": round(values.get('Fy', 0), 4),
-                            "Mz (kN·m)": round(values.get('M', 0), 4)
-                        })
-                df_reactions = pd.DataFrame(reaction_data)
-                st.dataframe(df_reactions, use_container_width=True, hide_index=True)
+            v_constrained = False
+            r_constrained = False
+            if support:
+                if support["type"] == "Empotrado":
+                    v_constrained = True
+                    r_constrained = True
+                elif support["type"] in ("Articulado", "Rodillo"):
+                    v_constrained = True
+
+            if v_constrained:
+                constrained_dofs.append(v_dof)
+            if r_constrained:
+                constrained_dofs.append(r_dof)
+
+            dof_data.append({
+                "Nodo": f"N{node['id']}",
+                "X (m)": node["x"],
+                "GDL Deflexión": v_dof,
+                "GDL Rotación": r_dof,
+                "Apoyo": support_type,
+                "Deflexión": "Restringido" if v_constrained else "Libre",
+                "Rotación": "Restringido" if r_constrained else "Libre",
+            })
+
+        st.markdown("### Asignación de Grados de Libertad")
+        df_dof = pd.DataFrame(dof_data)
+        st.dataframe(df_dof, use_container_width=True, hide_index=True)
+
+        ei_modo = st.radio(
+            "Valores de EI:",
+            ["EI = 1 (normalizado)", "EI real (E × I de cada elemento)"],
+            horizontal=True,
+            key="mat_ei_modo"
+        )
+        usar_ei_real = ei_modo == "EI real (E × I de cada elemento)"
+
+        valid_elements = []
+        for elem in data["elements"]:
+            sn = elem["start_node"]
+            en = elem["end_node"]
+            if sn not in dof_map or en not in dof_map:
+                continue
+            a, b = dof_map[sn]
+            c, d = dof_map[en]
+            L = abs(node_x_map[en] - node_x_map[sn])
+            EI_val = (elem["E"] * elem["I"]) if usar_ei_real else 1.0
+            valid_elements.append({
+                "idx": elem["id"],
+                "start_node": sn,
+                "end_node": en,
+                "a": a, "b": b, "c": c, "d": d,
+                "L": L, "EI": EI_val,
+            })
+
+        # --- Cargas automáticas desde la estructura ---
+        elem_loads = {}
+        for ve in valid_elements:
+            eid = str(ve["idx"])
+            sn = ve["start_node"]
+            en = ve["end_node"]
+            L = ve["L"]
+            loads = []
+
+            for pl in data["loads"]["point"]:
+                if pl["node_id"] == sn:
+                    loads.append({"type": "Puntual", "P": float(pl.get("fy", 0)), "d": 0.0})
+                elif pl["node_id"] == en:
+                    loads.append({"type": "Puntual", "P": float(pl.get("fy", 0)), "d": L})
+
+            for dl in data["loads"]["distributed"]:
+                if dl.get("element_id") == ve["idx"]:
+                    w_start = float(dl.get("w_start", 0))
+                    w_end = float(dl.get("w_end", 0))
+                    if abs(w_start - w_end) < 1e-10:
+                        loads.append({"type": "Lineal", "q": w_start})
+                    else:
+                        loads.append({"type": "Trapecio", "q1": w_start, "q2": w_end})
+
+            elem_loads[eid] = loads
+
+        elem_display = []
+        for ve in valid_elements:
+            eid = str(ve["idx"])
+            loads_list = elem_loads.get(eid, [])
+            cargas_strs = []
+            for ld in loads_list:
+                if ld["type"] == "Puntual":
+                    pos_str = "nodo inicial" if ld["d"] == 0 else f"d = {ld['d']:.2f} m"
+                    cargas_strs.append(f"P = {ld['P']:.2f} kN ({pos_str})")
+                elif ld["type"] == "Lineal":
+                    cargas_strs.append(f"q = {ld['q']:.2f} kN/m")
+                elif ld["type"] == "Trapecio":
+                    cargas_strs.append(f"q = {ld['q1']:.2f} a {ld['q2']:.2f} kN/m")
+            carga_str = ", ".join(cargas_strs) if cargas_strs else "Sin carga"
+            elem_display.append({
+                "Elemento": f"E{ve['idx']}",
+                "Nodos": f"N{ve['start_node']} - N{ve['end_node']}",
+                "L (m)": round(ve["L"], 4),
+                "EI": round(ve["EI"], 4),
+                "Carga": carga_str,
+                "GDL": f"({ve['a']},{ve['b']},{ve['c']},{ve['d']})",
+            })
+        st.markdown("### Elementos y Cargas")
+        df_elem = pd.DataFrame(elem_display)
+        st.dataframe(df_elem, use_container_width=True, hide_index=True)
+
+        if st.session_state.get("solved_model") is not None:
+            K_global = sp.Matrix.zeros(max_dof, max_dof)
+            F_global = sp.Matrix.zeros(max_dof, 1)
+
+            st.markdown("### Matrices Locales")
+            for ve in valid_elements:
+                a, b, c, d = ve["a"], ve["b"], ve["c"], ve["d"]
+                L = ve["L"]
+                EI_val = ve["EI"]
+
+                K_local = matriz_local(L, max_dof, a, b, c, d, EI=EI_val)
+                K_global += K_local
+                K_compact, indices = compact_matrix(K_local)
+                df_local = matrix_to_df(K_compact, indices)
+
+                st.markdown(f"**K{ve['idx']}** - N{ve['start_node']}-N{ve['end_node']}, L={L:.2f}, EI={EI_val:.4f}, GDL: ({a},{b},{c},{d})")
+                st.dataframe(df_local, use_container_width=True)
+
+                eid = str(ve["idx"])
+                loads_list = elem_loads.get(eid, [])
+                for li, ld in enumerate(loads_list):
+                    if ld["type"] == "Puntual":
+                        F_local = vector_fuerzas_puntual(float(ld["P"]), float(ld["d"]), L, max_dof, a, b, c, d)
+                        pos_str = "en nodo inicial" if ld["d"] == 0 else f"a d = {ld['d']:.2f} m"
+                        label = f"f{ve['idx']}.{li+1}  -  P = {ld['P']:.2f} kN ({pos_str})"
+                    elif ld["type"] == "Lineal":
+                        F_local = vector_fuerzas_lineal(float(ld["q"]), L, max_dof, a, b, c, d)
+                        label = f"f{ve['idx']}.{li+1}  -  q = {ld['q']:.2f} kN/m"
+                    elif ld["type"] == "Trapecio":
+                        F_local = vector_fuerzas_trapecio(float(ld["q1"]), float(ld["q2"]), L, max_dof, a, b, c, d)
+                        label = f"f{ve['idx']}.{li+1}  -  q = {ld['q1']:.2f} a {ld['q2']:.2f} kN/m"
+                    else:
+                        continue
+
+                    F_global += F_local
+                    nonzero_idx = [k for k in range(max_dof) if F_local[k] != 0]
+                    nonzero_vals = [float(F_local[k]) for k in nonzero_idx]
+                    labels_f = [f"GDL {k+1}" for k in nonzero_idx]
+                    df_f = pd.DataFrame(nonzero_vals, index=labels_f, columns=["Fuerza"])
+                    df_f["Fuerza"] = df_f["Fuerza"].map(lambda x: f"{x:.4f}")
+                    st.markdown(f"**{label}**")
+                    st.dataframe(df_f, use_container_width=True)
+
+            st.markdown("### Matriz de Rigidez Global")
+            all_indices = list(range(max_dof))
+            df_global = matrix_to_df(K_global, all_indices)
+            st.markdown(f"**K Global [{max_dof}×{max_dof}]**")
+            st.dataframe(df_global, use_container_width=True)
+
+            st.markdown("### Vector de Fuerzas Global")
+            nonzero_global = [k for k in range(max_dof) if F_global[k] != 0]
+            if nonzero_global:
+                vals_global = [float(F_global[k]) for k in nonzero_global]
+                labels_fg = [f"GDL {k+1}" for k in nonzero_global]
+                df_fg = pd.DataFrame(vals_global, index=labels_fg, columns=["Fuerza"])
+                df_fg["Fuerza"] = df_fg["Fuerza"].map(lambda x: f"{x:.4f}")
+                st.dataframe(df_fg, use_container_width=True)
             else:
-                st.info("No se encontraron reacciones")
-        except Exception as e:
-            st.error(f"Error al obtener reacciones: {e}")
+                st.info("Vector de fuerzas global nulo (sin cargas).")
 
-        # Tabla de nodos con desplazamiento
-        st.markdown("### ↕️ Desplazamientos en Nodos")
-        try:
-            node_deflections = []
-            for node in data["nodes"]:
-                try:
-                    deflection = ss.vertex_id_flection(node["id"])
-                    node_deflections.append({
-                        "Nodo": f"N{node['id']}",
-                        "X (m)": node["x"],
-                        "Deflexión (m)": round(deflection, 6)
-                    })
-                except:
-                    node_deflections.append({
-                        "Nodo": f"N{node['id']}",
-                        "X (m)": node["x"],
-                        "Deflexión (m)": 0.0
-                    })
+            # --- Resolución del sistema K·u = F ---
+            free_indices = [i for i in range(max_dof) if (i + 1) not in constrained_dofs]
+            constrained_indices = [i for i in range(max_dof) if (i + 1) in constrained_dofs]
 
-            df_deflections = pd.DataFrame(node_deflections)
-            st.dataframe(df_deflections, use_container_width=True, hide_index=True)
-        except Exception as e:
-            st.warning(f"No se pudieron obtener todos los desplazamientos: {e}")
+            if not free_indices:
+                st.warning("Todos los grados de libertad están restringidos. No se puede resolver el sistema.")
+            else:
+                K_ff = K_global.extract(free_indices, free_indices)
+                F_f = F_global.extract(free_indices, [0])
 
-        # Exportar a CSV
-        st.markdown("### 📤 Exportar Datos")
-        if st.button("📊 Exportar resultados a CSV", use_container_width=True):
-            try:
-                # Crear dataframe combinado
-                all_data = []
+                st.markdown("---")
+                st.markdown("##  Solución del Sistema")
 
-                # Agregar reacciones
-                for node_id, values in sorted(reactions.items()) if 'reactions' in dir() else []:
-                    all_data.append({
-                        "Tipo": "Reacción",
-                        "Nodo": f"N{node_id}",
-                        "Fx_kN": values.get('Fx', 0),
-                        "Fy_kN": values.get('Fy', 0),
-                        "Mz_kNm": values.get('M', 0)
-                    })
+                free_labels = ", ".join(f"u{i+1}" for i in free_indices)
+                cons_labels = ", ".join(f"u{i+1}" for i in constrained_indices) if constrained_indices else "ninguno"
 
-                # Agregar desplazamientos
-                for nd in node_deflections:
-                    all_data.append({
-                        "Tipo": "Desplazamiento",
-                        "Nodo": nd["Nodo"],
-                        "Fx_kN": "",
-                        "Fy_kN": nd["Deflexión (m)"],
-                        "Mz_kNm": ""
-                    })
+                st.markdown("**GDL libres** (incógnitas): " + free_labels)
+                st.markdown("**GDL restringidos** (valores conocidos = 0): " + cons_labels)
 
-                if all_data:
-                    df_export = pd.DataFrame(all_data)
-                    csv = df_export.to_csv(index=False)
-                    st.download_button(
-                        "Descargar CSV",
-                        csv,
-                        file_name=f"resultados_{project_name.replace(' ', '_')}.csv",
-                        mime="text/csv",
-                        use_container_width=True
+                st.markdown("### 1. Partición del sistema")
+                st.latex(r"\begin{bmatrix} K_{11} & K_{12} \\ K_{21} & K_{22} \end{bmatrix} \begin{bmatrix} u \\ 0 \end{bmatrix} = \begin{bmatrix} F_1 \\ F_2 \end{bmatrix}")
+
+                c1, c2 = st.columns(2)
+                with c1:
+                    labels_free = [f"GDL {i+1}" for i in free_indices]
+                    df_Kff = matrix_to_df(K_ff, free_indices)
+                    st.markdown("**$K_{ff}$** — Rigidez GDL libres")
+                    st.dataframe(df_Kff, use_container_width=True)
+                with c2:
+                    df_ff = pd.DataFrame(
+                        [float(F_f[i]) for i in range(len(free_indices))],
+                        index=labels_free, columns=["Fuerza"]
                     )
-                else:
-                    st.warning("No hay datos para exportar")
-            except Exception as e:
-                st.error(f"Error al exportar: {e}")
+                    df_ff["Fuerza"] = df_ff["Fuerza"].map(lambda x: f"{x:.4f}")
+                    st.markdown("**$F_f$** — Fuerzas en GDL libres")
+                    st.dataframe(df_ff, use_container_width=True)
 
-# ─── Footer ───
+                if K_ff.det() == 0:
+                    st.error("La matriz $K_{libres}$ es singular. La estructura puede ser un mecanismo. Verifica las condiciones de apoyo.")
+                else:
+                    u_f = K_ff.inv() * F_f
+                    u_f = u_f.evalf(6)
+
+                    st.markdown("### 2. Cálculo de desplazamientos")
+                    st.latex(r"\boxed{u = K^{-1} \cdot F}")
+
+                    st.markdown("**Sistema de ecuaciones:**")
+                    for row_i in range(len(free_indices)):
+                        terms = []
+                        first = True
+                        for col_j in range(len(free_indices)):
+                            coeff = float(K_ff[row_i, col_j])
+                            if abs(coeff) > 1e-10:
+                                if first:
+                                    sign_str = "" if coeff >= 0 else "-"
+                                    terms.append(f"{sign_str}{abs(coeff):.4f}\\;u_{{{free_indices[col_j]+1}}}")
+                                    first = False
+                                else:
+                                    if coeff >= 0:
+                                        terms.append(f"+ {abs(coeff):.4f}\\;u_{{{free_indices[col_j]+1}}}")
+                                    else:
+                                        terms.append(f"- {abs(coeff):.4f}\\;u_{{{free_indices[col_j]+1}}}")
+                        lhs = " ".join(terms) if terms else "0"
+                        rhs = float(F_f[row_i])
+                        st.latex(f"{lhs} = {rhs:.4f}")
+
+                    st.markdown("**Solución:**")
+                    for i, idx in enumerate(free_indices):
+                        val = float(u_f[i])
+                        st.latex(f"u_{{{idx+1}}} = {val:.6f}")
+
+                    st.markdown("---")
+                    disp_data = []
+                    for i, idx in enumerate(free_indices):
+                        gdl_type = "Deflexión"
+                        node_info = ""
+                        for node in all_nodes:
+                            v, r = dof_map[node["id"]]
+                            if idx + 1 == v:
+                                gdl_type = "Deflexión"
+                                node_info = f"N{node['id']}"
+                                break
+                            elif idx + 1 == r:
+                                gdl_type = "Rotación"
+                                node_info = f"N{node['id']}"
+                                break
+
+                        val = float(u_f[i])
+                        if gdl_type == "Deflexión":
+                            disp_data.append({
+                                "GDL": f"u{idx+1}",
+                                "Tipo": gdl_type,
+                                "Nodo": node_info,
+                                "Valor": f"{val:.6f} m",
+                                "Valor (mm)": f"{val*1000:.4f} mm",
+                            })
+                        else:
+                            disp_data.append({
+                                "GDL": f"u{idx+1}",
+                                "Tipo": gdl_type,
+                                "Nodo": node_info,
+                                "Valor": f"{val*1000:.4f} mrad",
+                                "Valor (mm)": "—",
+                            })
+                    st.markdown("**Tabla de desplazamientos:**")
+                    df_disp = pd.DataFrame(disp_data)
+                    st.dataframe(df_disp, use_container_width=True, hide_index=True)
+
+                    # --- Reacciones ---
+                    if constrained_indices:
+                        K_cf = K_global.extract(constrained_indices, free_indices)
+                        F_c = F_global.extract(constrained_indices, [0])
+                        R_c = K_cf * u_f - F_c
+                        R_c = R_c.evalf(4)
+
+                        st.markdown("---")
+                        st.markdown("### 3. Reacciones en los apoyos")
+                        st.latex(r"\boxed{R = K \cdot u - F}")
+
+                        labels_constrained = [f"GDL {i+1}" for i in constrained_indices]
+                        df_Kcf = matrix_to_df(K_cf, constrained_indices, free_indices)
+                        st.markdown("**$K_{cf}$** — Rigidez apoyos - libres")
+                        st.dataframe(df_Kcf, use_container_width=True)
+
+                        if any(abs(float(F_c[i])) > 1e-10 for i in range(len(constrained_indices))):
+                            df_fc = pd.DataFrame(
+                                [float(F_c[i]) for i in range(len(constrained_indices))],
+                                index=labels_constrained, columns=["Fuerza"]
+                            )
+                            df_fc["Fuerza"] = df_fc["Fuerza"].map(lambda x: f"{x:.4f}")
+                            st.markdown("**$F_c$** — Fuerzas equivalentes en apoyos")
+                            st.dataframe(df_fc, use_container_width=True)
+
+                        st.markdown("**Cálculo:**")
+                        for row_i in range(len(constrained_indices)):
+                            terms = []
+                            first = True
+                            for col_j in range(len(free_indices)):
+                                coeff = float(K_cf[row_i, col_j])
+                                if abs(coeff) > 1e-10:
+                                    u_val = float(u_f[col_j])
+                                    prod = coeff * u_val
+                                    if first:
+                                        sign_str = "" if prod >= 0 else "-"
+                                        terms.append(f"{sign_str}{abs(prod):.4f}")
+                                        first = False
+                                    else:
+                                        if prod >= 0:
+                                            terms.append(f"+ {abs(prod):.4f}")
+                                        else:
+                                            terms.append(f"- {abs(prod):.4f}")
+                            lhs_ku = " ".join(terms) if terms else "0"
+                            fc_val = float(F_c[row_i])
+                            rhs = float(R_c[row_i])
+
+                            st.latex(f"R_{{{constrained_indices[row_i]+1}}} = ({lhs_ku}) - ({fc_val:.4f}) = {rhs:.4f}")
+
+                        rxn_data = []
+                        for i, idx in enumerate(constrained_indices):
+                            gdl_type = "—"
+                            node_info = ""
+                            unit = "kN"
+                            for node in all_nodes:
+                                v, r = dof_map[node["id"]]
+                                if idx + 1 == v:
+                                    gdl_type = "Ry"
+                                    node_info = f"N{node['id']}"
+                                    unit = "kN"
+                                    break
+                                elif idx + 1 == r:
+                                    gdl_type = "M"
+                                    node_info = f"N{node['id']}"
+                                    unit = "kN·m"
+                                    break
+                            val = float(R_c[i])
+                            rxn_data.append({
+                                "Reacción": f"R{idx+1}",
+                                "Tipo": gdl_type,
+                                "Nodo": node_info,
+                                "Valor": f"{val:.4f} {unit}",
+                            })
+                        df_rxn = pd.DataFrame(rxn_data)
+                        st.markdown("**Resultado final — Reacciones:**")
+                        st.dataframe(df_rxn, use_container_width=True, hide_index=True)
+
+                        st.markdown("---")
+                        st.markdown("### 4. Comparación con PyNite")
+                        ss_pynite = st.session_state.get("solved_model")
+                        if ss_pynite and hasattr(ss_pynite, 'reaction_force') and ss_pynite.reaction_force:
+                            comp_disp = []
+                            for node in all_nodes:
+                                nid = node["id"]
+                                v_dof, r_dof = dof_map[nid]
+                                pynite_dy = ss_pynite.vertex_id_flection(nid)
+                                mat_dy = None
+                                mat_rot = None
+                                for i_f, idx_f in enumerate(free_indices):
+                                    if idx_f + 1 == v_dof:
+                                        mat_dy = float(u_f[i_f])
+                                    if idx_f + 1 == r_dof:
+                                        mat_rot = float(u_f[i_f])
+                                if mat_dy is not None:
+                                    pynite_mm = pynite_dy * 1000
+                                    mat_mm = mat_dy * 1000
+                                    diff_dy = abs(pynite_mm - mat_mm)
+                                    comp_disp.append({
+                                        "Nodo": f"N{nid}",
+                                        "Mét. Matricial (mm)": f"{mat_mm:.4f}",
+                                        "PyNite (mm)": f"{pynite_mm:.4f}",
+                                        "Error (mm)": f"{diff_dy:.4f}",
+                                    })
+                            if comp_disp:
+                                st.markdown("**Desplazamientos:**")
+                                st.dataframe(pd.DataFrame(comp_disp), use_container_width=True, hide_index=True)
+
+                            comp_data = []
+                            for node in all_nodes:
+                                nid = node["id"]
+                                py_rxn = ss_pynite.reaction_force.get(nid, {})
+                                v_dof, r_dof = dof_map[nid]
+                                pynite_ry = float(py_rxn.get("Fy", 0)) if isinstance(py_rxn, dict) else 0
+                                pynite_m = float(py_rxn.get("M", 0)) if isinstance(py_rxn, dict) else 0
+                                mat_ry = None
+                                mat_m = None
+                                for idx_i, idx in enumerate(constrained_indices):
+                                    if v_dof and idx + 1 == v_dof:
+                                        mat_ry = float(R_c[idx_i])
+                                    if r_dof and idx + 1 == r_dof:
+                                        mat_m = float(R_c[idx_i])
+                                row = {"Nodo": f"N{nid}"}
+                                if mat_ry is not None:
+                                    row["Mét. Matricial Ry (kN)"] = f"{mat_ry:.4f}"
+                                    row["PyNite Ry (kN)"] = f"{pynite_ry:.4f}"
+                                    row["Error Ry (kN)"] = f"{abs(mat_ry - pynite_ry):.4f}"
+                                if mat_m is not None:
+                                    row["Mét. Matricial M (kN·m)"] = f"{mat_m:.4f}"
+                                    row["PyNite M (kN·m)"] = f"{pynite_m:.4f}"
+                                    row["Error M (kN·m)"] = f"{abs(mat_m - pynite_m):.4f}"
+                                if len(row) > 1:
+                                    comp_data.append(row)
+                            if comp_data:
+                                st.markdown("**Reacciones:**")
+                                st.dataframe(pd.DataFrame(comp_data), use_container_width=True, hide_index=True)
+                            if not comp_disp and not comp_data:
+                                st.info("Sin datos para comparar.")
+                        else:
+                            st.warning("No hay resultados de PyNite disponibles para comparar.")
+
+                        support_nodes = [n for n in all_nodes if any(s["node_id"] == n["id"] for s in data["supports"])]
+                        if support_nodes:
+                            st.markdown("---")
+                            st.markdown("###  Resumen de reacciones")
+                            for node in support_nodes:
+                                v_dof, r_dof = dof_map[node["id"]]
+                                support = next((s for s in data["supports"] if s["node_id"] == node["id"]), None)
+                                parts = []
+                                for idx_i, idx in enumerate(constrained_indices):
+                                    if idx + 1 == v_dof:
+                                        parts.append(f"Ry = {float(R_c[idx_i]):.4f} kN")
+                                    if idx + 1 == r_dof:
+                                        parts.append(f"M = {float(R_c[idx_i]):.4f} kN·m")
+                                if parts:
+                                    st.markdown(f"**Nodo N{node['id']}** ({support['type']}): {' &nbsp;|&nbsp; '.join(parts)}")
+                    else:
+                        st.info("No hay apoyos definidos. No se pueden calcular reacciones.")
+
+# --- Footer ---
 st.divider()
 st.markdown(
     """
     <div style='text-align: center; color: #888; padding: 10px;'>
-    ACADEMIC STRUCTURAL ANALYSIS | Desarrollado con Streamlit y PyNite<br>
+    ANALISIS ESTRUCTURAL ACADÉMICO | Desarrollado con Streamlit y PyNite<br>
     <small>Herramienta educativa para análisis de estructuras isostáticas e hiperestáticas</small>
     </div>
     """,
