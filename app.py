@@ -13,7 +13,7 @@ import glob
 
 st.set_page_config(
     page_title="ANALISIS ESTRUCTURAL ACADÉMICO",
-    layout="wide",
+    layout="minimal",
     page_icon=None,
     initial_sidebar_state="expanded"
 )
