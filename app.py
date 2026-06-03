@@ -4,6 +4,7 @@ import json
 import io
 import numpy as np
 from Pynite import FEModel3D
+from solucionador_matricial import BeamMatrixSolver
 from datetime import datetime
 import pandas as pd
 import sympy as sp
@@ -12,9 +13,9 @@ import glob
 
 st.set_page_config(
     page_title="ANALISIS ESTRUCTURAL ACADÉMICO",
+    layout="wide",
     page_icon=None,
-    initial_sidebar_state="expanded",
-    layout="centered",  # ← Cambiar "wide" por "centered"
+    initial_sidebar_state="expanded"
 )
 
 
@@ -255,8 +256,14 @@ def remove_support(node_id):
     save_to_history()
 
 def add_point_load(node_id, fy):
-    """Añade una carga puntual"""
+    """Añade una carga puntual en un nodo"""
     data["loads"]["point"].append({"node_id": node_id, "fx": 0.0, "fy": float(fy), "mz": 0.0})
+    st.session_state.solved_model = None
+    save_to_history()
+
+def add_point_load_on_element(element_id, x_pos, fy):
+    """Añade una carga puntual en posicion arbitraria sobre un elemento"""
+    data["loads"]["point"].append({"element_id": element_id, "x": float(x_pos), "fy": float(fy), "mz": 0.0})
     st.session_state.solved_model = None
     save_to_history()
 
@@ -363,16 +370,51 @@ class PyNiteBeamModel:
                 self.model.def_support(node_name, False, True, True, True, True, False)
 
         for pl in self.data["loads"]["point"]:
-            node_name = self._node_name(pl["node_id"])
-            if pl.get("fx", 0):
-                self.model.add_node_load(node_name, "FX", float(pl["fx"]))
-            if pl.get("fy", 0):
-                self.model.add_node_load(node_name, "FY", float(pl["fy"]))
-            if pl.get("mz", 0):
-                self.model.add_node_load(node_name, "MZ", float(pl["mz"]))
+            if "element_id" in pl:
+                self._add_point_on_member(pl)
+            elif "node_id" in pl:
+                node_name = self._node_name(pl["node_id"])
+                if pl.get("fx", 0):
+                    self.model.add_node_load(node_name, "FX", float(pl["fx"]))
+                if pl.get("fy", 0):
+                    self.model.add_node_load(node_name, "FY", float(pl["fy"]))
+                if pl.get("mz", 0):
+                    self.model.add_node_load(node_name, "MZ", float(pl["mz"]))
 
         for dl in self.data["loads"]["distributed"]:
             self._add_distributed_load(dl)
+
+    def _add_point_on_member(self, pl):
+        eid = pl.get("element_id")
+        if eid is None:
+            return
+        elem = next((e for e in self.data["elements"] if e["id"] == eid), None)
+        if not elem:
+            return
+        n_start = self._node_by_id(elem["start_node"])
+        n_end = self._node_by_id(elem["end_node"])
+        if not n_start or not n_end:
+            return
+        x_start = float(n_start["x"])
+        x_end = float(n_end["x"])
+        L = abs(x_end - x_start)
+        if L < 1e-12:
+            return
+        x_pos = pl.get("x")
+        if x_pos is not None:
+            x_min = min(x_start, x_end)
+            d = abs(float(x_pos) - x_min)
+        else:
+            d = float(pl.get("d", L / 2))
+        fy = float(pl.get("fy", 0))
+        if abs(fy) < 1e-15:
+            return
+        member_name = self.member_names.get(eid)
+        if member_name:
+            eps = L / 10000
+            self.model.add_member_dist_load(
+                member_name, "FY", fy / eps, fy / eps, d - eps / 2, d + eps / 2
+            )
 
     def _add_distributed_load(self, dl):
         eid = dl.get("element_id")
@@ -1151,21 +1193,38 @@ with st.sidebar:
             )
 
             if load_type == "Puntual":
-                with st.container():
+                pt_mode = st.radio("Ubicacion", ["En nodo", "Sobre elemento"], horizontal=True)
+                if pt_mode == "En nodo":
                     col1, col2 = st.columns(2)
                     p_node = col1.selectbox("Nodo", node_ids, format_func=lambda x: f"N{x}")
                     fy = col2.number_input("Fy (kN)", value=-10.0, step=1.0)
-
-                col_info = st.columns([1, 3])
-                with col_info[0]:
-                    st.markdown("**Signo:**")
-                with col_info[1]:
-                    st.markdown(" Positivo = Hacia arriba<br> Negativo = Hacia abajo", unsafe_allow_html=True)
-
-                if st.button("Aplicar Carga Puntual", use_container_width=True):
-                    add_point_load(p_node, fy)
-                    st.success(f"Carga puntual de {fy} kN aplicada en N{p_node}")
-                    st.rerun()
+                    st.caption("Positivo = hacia arriba | Negativo = hacia abajo")
+                    if st.button("Aplicar Carga Puntual (nodo)", use_container_width=True):
+                        add_point_load(p_node, fy)
+                        st.success(f"Carga puntual de {fy} kN aplicada en N{p_node}")
+                        st.rerun()
+                else:
+                    if not data["elements"]:
+                        st.warning("Defina elementos primero en la seccion Elementos.")
+                    else:
+                        elem_opts = {f"E{e['id']} (N{e['start_node']}-N{e['end_node']})": e
+                                     for e in data["elements"]}
+                        sel_label = st.selectbox("Elemento", list(elem_opts.keys()), index=0)
+                        sel_elem = elem_opts[sel_label]
+                        n1 = next((n for n in data["nodes"] if n["id"] == sel_elem["start_node"]), None)
+                        n2 = next((n for n in data["nodes"] if n["id"] == sel_elem["end_node"]), None)
+                        x_min = min(n1["x"], n2["x"]) if n1 and n2 else 0
+                        x_max = max(n1["x"], n2["x"]) if n1 and n2 else 1
+                        col1, col2 = st.columns(2)
+                        x_pos = col1.number_input("X (m)", value=float((x_min+x_max)/2),
+                                                  min_value=float(x_min), max_value=float(x_max),
+                                                  step=0.5, format="%.2f")
+                        fy_el = col2.number_input("Fy (kN)", value=-10.0, step=1.0, key="fy_elem")
+                        st.caption(f"Elemento de x={x_min:.2f} a x={x_max:.2f} m")
+                        if st.button("Aplicar Carga Puntual (elemento)", use_container_width=True):
+                            add_point_load_on_element(sel_elem["id"], x_pos, fy_el)
+                            st.success(f"Carga puntual de {fy_el} kN en E{sel_elem['id']} @ x={x_pos:.2f} m")
+                            st.rerun()
 
             else:  # Distribuida
                 if not data["elements"]:
@@ -1198,7 +1257,12 @@ with st.sidebar:
             st.markdown("**Cargas Puntuales:**")
             for i, l in enumerate(data["loads"]["point"]):
                 col1, col2 = st.columns([4, 1])
-                col1.markdown(f"**N{l['node_id']}**: {l['fy']} kN" + (" (abajo)" if l['fy'] < 0 else " (arriba)"))
+                if "element_id" in l:
+                    eid = l["element_id"]
+                    xp = l.get("x", "?")
+                    col1.markdown(f"**E{eid}** @ x={xp} m: {l['fy']} kN" + (" (abajo)" if l['fy'] < 0 else " (arriba)"))
+                else:
+                    col1.markdown(f"**N{l['node_id']}**: {l['fy']} kN" + (" (abajo)" if l['fy'] < 0 else " (arriba)"))
                 if col2.button("X", key=f"del_pt_{i}"):
                     remove_point_load(i)
                     st.rerun()
@@ -1436,7 +1500,7 @@ with tab_results:
         # Selector de diagrama
         diagram_type = st.radio(
             "Seleccione diagrama:",
-            ["Reacciones", "Fuerza Cortante (V)", "Momento Flector (M)", "Deflexión"],
+            ["Reacciones", "Fuerza Cortante (V)", "Momento Flector (M)"],
             horizontal=True
         )
 
@@ -1460,22 +1524,6 @@ with tab_results:
                 )
             except:
                 st.warning("No se pudo generar el diagrama de momento flector")
-        elif diagram_type == "Deflexión":
-            try:
-                fig_disp = ss.show_displacement()
-                st.pyplot(fig_disp)
-                plt.close(fig_disp)
-
-                stats = ss.get_displacement_stats()
-                st.markdown("---")
-                st.markdown("###  Desplazamiento Maximo Absoluto")
-                st.metric(
-                    "Desplazamiento maximo",
-                    f"{stats['abs_max_disp_mm']:.4f} mm",
-                    delta=stats['abs_max_node'] if stats['abs_max_node'] else None
-                )
-            except:
-                st.warning("No se pudo generar el diagrama de deflexión")
 
         # Descargar diagrama
         if st.button(" Descargar diagrama", use_container_width=True):
@@ -1502,8 +1550,14 @@ with tab_matrix:
     elif not data["supports"]:
         st.warning(" Define al menos un apoyo para poder resolver el sistema.")
     else:
-        all_nodes = sorted(data["nodes"], key=lambda x: x["x"])
+        all_nodes_full = sorted(data["nodes"], key=lambda x: x["x"])
         node_x_map = {n["id"]: n["x"] for n in data["nodes"]}
+
+        connected_ids = set()
+        for e in data["elements"]:
+            connected_ids.add(e["start_node"])
+            connected_ids.add(e["end_node"])
+        all_nodes = [n for n in all_nodes_full if n["id"] in connected_ids]
 
         max_dof = 2 * len(all_nodes)
         dof_map = {}
@@ -1581,10 +1635,22 @@ with tab_matrix:
             loads = []
 
             for pl in data["loads"]["point"]:
-                if pl["node_id"] == sn:
+                eid_pl = pl.get("element_id")
+                if eid_pl == ve["idx"]:
+                    loads.append({"type": "PuntualElem", "P": float(pl.get("fy", 0)),
+                                  "x": pl.get("x", 0)})
+                elif pl.get("node_id") == sn:
                     loads.append({"type": "Puntual", "P": float(pl.get("fy", 0)), "d": 0.0})
-                elif pl["node_id"] == en:
+                elif pl.get("node_id") == en:
                     loads.append({"type": "Puntual", "P": float(pl.get("fy", 0)), "d": L})
+                elif pl.get("node_id") not in connected_ids:
+                    nx = node_x_map.get(pl.get("node_id"))
+                    if nx is not None:
+                        x1 = node_x_map[sn]; x2 = node_x_map[en]
+                        if min(x1, x2) - 1e-10 <= nx <= max(x1, x2) + 1e-10:
+                            d_pos = abs(nx - min(x1, x2))
+                            loads.append({"type": "PuntualElem", "P": float(pl.get("fy", 0)),
+                                          "x": nx})
 
             for dl in data["loads"]["distributed"]:
                 if dl.get("element_id") == ve["idx"]:
@@ -1603,7 +1669,9 @@ with tab_matrix:
             loads_list = elem_loads.get(eid, [])
             cargas_strs = []
             for ld in loads_list:
-                if ld["type"] == "Puntual":
+                if ld["type"] == "PuntualElem":
+                    cargas_strs.append(f"P = {ld['P']:.2f} kN @ x={ld['x']:.2f} m")
+                elif ld["type"] == "Puntual":
                     pos_str = "nodo inicial" if ld["d"] == 0 else f"d = {ld['d']:.2f} m"
                     cargas_strs.append(f"P = {ld['P']:.2f} kN ({pos_str})")
                 elif ld["type"] == "Lineal":
@@ -1623,9 +1691,59 @@ with tab_matrix:
         df_elem = pd.DataFrame(elem_display)
         st.dataframe(df_elem, use_container_width=True, hide_index=True)
 
-        if st.session_state.get("solved_model") is not None:
+        st.divider()
+        col_mat_btn, col_mat_sp = st.columns([1, 3])
+        with col_mat_btn:
+            resolver_mat = st.button("Resolver Metodo Matricial", type="primary",
+                                     use_container_width=True, key="btn_mat_solve")
+
+        if resolver_mat or "matricial_solver" in st.session_state:
+            P_global = sp.Matrix.zeros(max_dof, 1)
+            Qf_global = sp.Matrix.zeros(max_dof, 1)
+
+            for pl in data["loads"]["point"]:
+                eid = pl.get("element_id")
+                if eid is not None:
+                    elem = next((e for e in data["elements"] if e["id"] == eid), None)
+                    if elem and elem["start_node"] in dof_map and elem["end_node"] in dof_map:
+                        a, b = dof_map[elem["start_node"]]
+                        c, d = dof_map[elem["end_node"]]
+                        L = abs(node_x_map[elem["end_node"]] - node_x_map[elem["start_node"]])
+                        x_pos = pl.get("x")
+                        if x_pos is not None:
+                            x_start = min(node_x_map[elem["start_node"]], node_x_map[elem["end_node"]])
+                            dist = abs(float(x_pos) - x_start)
+                        else:
+                            dist = float(pl.get("d", L / 2))
+                        fy = float(pl.get("fy", 0))
+                        if abs(fy) > 1e-15:
+                            F_pt = vector_fuerzas_puntual(fy, dist, L, max_dof, a, b, c, d)
+                            Qf_global += F_pt
+                else:
+                    nid = pl.get("node_id")
+                    if nid is not None:
+                        fy = float(pl.get("fy", 0))
+                        mz = float(pl.get("mz", 0))
+                        if nid in dof_map:
+                            v_dof, r_dof = dof_map[nid]
+                            P_global[v_dof - 1, 0] += fy
+                            P_global[r_dof - 1, 0] += mz
+                        else:
+                            node_x_val = node_x_map.get(nid)
+                            if node_x_val is not None:
+                                for ve in valid_elements:
+                                    x1 = node_x_map[ve["start_node"]]
+                                    x2 = node_x_map[ve["end_node"]]
+                                    if min(x1, x2) - 1e-10 <= node_x_val <= max(x1, x2) + 1e-10:
+                                        a, b, c, d = ve["a"], ve["b"], ve["c"], ve["d"]
+                                        L = abs(x2 - x1)
+                                        d_pos = abs(node_x_val - min(x1, x2))
+                                        if abs(fy) > 1e-15:
+                                            F_pt = vector_fuerzas_puntual(fy, d_pos, L, max_dof, a, b, c, d)
+                                            Qf_global += F_pt
+                                        break
+
             K_global = sp.Matrix.zeros(max_dof, max_dof)
-            F_global = sp.Matrix.zeros(max_dof, 1)
 
             st.markdown("### Matrices Locales")
             for ve in valid_elements:
@@ -1638,73 +1756,113 @@ with tab_matrix:
                 K_compact, indices = compact_matrix(K_local)
                 df_local = matrix_to_df(K_compact, indices)
 
-                st.markdown(f"**K{ve['idx']}** - N{ve['start_node']}-N{ve['end_node']}, L={L:.2f}, EI={EI_val:.4f}, GDL: ({a},{b},{c},{d})")
+                st.markdown(f"**K{ve['idx']}** — Elemento E{ve['idx']} (N{ve['start_node']} → N{ve['end_node']}), L = {L:.2f} m, EI = {EI_val:.4f}, GDL: ({a}, {b}, {c}, {d})")
                 st.dataframe(df_local, use_container_width=True)
 
-                eid = str(ve["idx"])
-                loads_list = elem_loads.get(eid, [])
-                for li, ld in enumerate(loads_list):
-                    if ld["type"] == "Puntual":
-                        F_local = vector_fuerzas_puntual(float(ld["P"]), float(ld["d"]), L, max_dof, a, b, c, d)
-                        pos_str = "en nodo inicial" if ld["d"] == 0 else f"a d = {ld['d']:.2f} m"
-                        label = f"f{ve['idx']}.{li+1}  -  P = {ld['P']:.2f} kN ({pos_str})"
-                    elif ld["type"] == "Lineal":
-                        F_local = vector_fuerzas_lineal(float(ld["q"]), L, max_dof, a, b, c, d)
-                        label = f"f{ve['idx']}.{li+1}  -  q = {ld['q']:.2f} kN/m"
-                    elif ld["type"] == "Trapecio":
-                        F_local = vector_fuerzas_trapecio(float(ld["q1"]), float(ld["q2"]), L, max_dof, a, b, c, d)
-                        label = f"f{ve['idx']}.{li+1}  -  q = {ld['q1']:.2f} a {ld['q2']:.2f} kN/m"
-                    else:
+                for dl in data["loads"]["distributed"]:
+                    if dl.get("element_id") != ve["idx"]:
                         continue
-
-                    F_global += F_local
+                    w_start = float(dl.get("w_start", 0))
+                    w_end = float(dl.get("w_end", 0))
+                    if abs(w_start - w_end) < 1e-10:
+                        F_local = vector_fuerzas_lineal(w_start, L, max_dof, a, b, c, d)
+                        label = f"Elemento E{ve['idx']} — carga distribuida: q = {w_start:.2f} kN/m"
+                    else:
+                        F_local = vector_fuerzas_trapecio(w_start, w_end, L, max_dof, a, b, c, d)
+                        label = f"Elemento E{ve['idx']} — carga distribuida: q = {w_start:.2f} a {w_end:.2f} kN/m"
+                    Qf_global += F_local
                     nonzero_idx = [k for k in range(max_dof) if F_local[k] != 0]
                     nonzero_vals = [float(F_local[k]) for k in nonzero_idx]
                     labels_f = [f"GDL {k+1}" for k in nonzero_idx]
-                    df_f = pd.DataFrame(nonzero_vals, index=labels_f, columns=["Fuerza"])
-                    df_f["Fuerza"] = df_f["Fuerza"].map(lambda x: f"{x:.4f}")
+                    df_f = pd.DataFrame(nonzero_vals, index=labels_f, columns=["Fuerza equivalente"])
+                    df_f["Fuerza equivalente"] = df_f["Fuerza equivalente"].map(lambda x: f"{x:.4f}")
                     st.markdown(f"**{label}**")
                     st.dataframe(df_f, use_container_width=True)
+
+            F_global = P_global + Qf_global
 
             st.markdown("### Matriz de Rigidez Global")
             all_indices = list(range(max_dof))
             df_global = matrix_to_df(K_global, all_indices)
-            st.markdown(f"**K Global [{max_dof}×{max_dof}]**")
+            st.markdown(f"**K Global [{max_dof}x{max_dof}]**")
             st.dataframe(df_global, use_container_width=True)
 
-            st.markdown("### Vector de Fuerzas Global")
-            nonzero_global = [k for k in range(max_dof) if F_global[k] != 0]
-            if nonzero_global:
-                vals_global = [float(F_global[k]) for k in nonzero_global]
-                labels_fg = [f"GDL {k+1}" for k in nonzero_global]
-                df_fg = pd.DataFrame(vals_global, index=labels_fg, columns=["Fuerza"])
-                df_fg["Fuerza"] = df_fg["Fuerza"].map(lambda x: f"{x:.4f}")
-                st.dataframe(df_fg, use_container_width=True)
+            st.markdown("### Vector de Cargas Global")
+
+            nonzero_P = [k for k in range(max_dof) if P_global[k] != 0]
+            if nonzero_P:
+                st.markdown("**P — Cargas puntuales en nodos:**")
+                vals_P = [float(P_global[k]) for k in nonzero_P]
+                labels_P = [f"GDL {k+1}" for k in nonzero_P]
+                df_P = pd.DataFrame(vals_P, index=labels_P, columns=["Fuerza (kN)"])
+                df_P["Fuerza (kN)"] = df_P["Fuerza (kN)"].map(lambda x: f"{x:.4f}")
+                st.dataframe(df_P, use_container_width=True)
+
+            nonzero_Qf = [k for k in range(max_dof) if Qf_global[k] != 0]
+            if nonzero_Qf:
+                st.markdown("**Qf — Fuerzas equivalentes de cargas distribuidas:**")
+                vals_Qf = [float(Qf_global[k]) for k in nonzero_Qf]
+                labels_Qf = [f"GDL {k+1}" for k in nonzero_Qf]
+                df_Qf = pd.DataFrame(vals_Qf, index=labels_Qf, columns=["Fuerza equivalente (kN)"])
+                df_Qf["Fuerza equivalente (kN)"] = df_Qf["Fuerza equivalente (kN)"].map(lambda x: f"{x:.4f}")
+                st.dataframe(df_Qf, use_container_width=True)
+
+            nonzero_F = [k for k in range(max_dof) if F_global[k] != 0]
+            if nonzero_F:
+                st.markdown("**F = P + Qf — Vector de fuerzas combinado:**")
+                vals_F = [float(F_global[k]) for k in nonzero_F]
+                labels_F = [f"GDL {k+1}" for k in nonzero_F]
+                df_F = pd.DataFrame(vals_F, index=labels_F, columns=["Fuerza (kN)"])
+                df_F["Fuerza (kN)"] = df_F["Fuerza (kN)"].map(lambda x: f"{x:.4f}")
+                st.dataframe(df_F, use_container_width=True)
             else:
                 st.info("Vector de fuerzas global nulo (sin cargas).")
 
-            # --- Resolución del sistema K·u = F ---
-            free_indices = [i for i in range(max_dof) if (i + 1) not in constrained_dofs]
-            constrained_indices = [i for i in range(max_dof) if (i + 1) in constrained_dofs]
+            solver = BeamMatrixSolver(
+                data["nodes"], data["elements"], data["supports"],
+                data["loads"]["point"], data["loads"]["distributed"],
+                use_real_ei=usar_ei_real
+            )
+
+            st.markdown("---")
+            st.markdown("## Verificacion de Estabilidad")
+            stability = solver.check_stability()
+            if stability["status"] == "error":
+                st.error(f"{stability['message']}")
+            elif stability["status"] == "warning":
+                st.warning(f"{stability['message']}")
+            else:
+                cond_msg = f", Condicion: {stability.get('condition_number', 0):.2e}" if stability.get('condition_number') else ""
+                st.success(f"Matriz K_ff bien condicionada. Rango: {stability['rank']}{cond_msg}")
+
+            if stability["status"] == "error":
+                st.stop()
+
+            solved_ok = solver.solve()
+            if not solved_ok:
+                st.error("No se pudo resolver el sistema.")
+                st.stop()
+
+            st.session_state["matricial_solver"] = solver
+            summary = solver.get_solution_summary()
+
+            free_indices = solver.free_idx
+            constrained_indices = solver.cons_idx
 
             if not free_indices:
-                st.warning("Todos los grados de libertad están restringidos. No se puede resolver el sistema.")
+                st.warning("Todos los GDL estan restringidos. No hay incognitas que resolver.")
             else:
                 K_ff = K_global.extract(free_indices, free_indices)
                 F_f = F_global.extract(free_indices, [0])
 
                 st.markdown("---")
-                st.markdown("##  Solución del Sistema")
+                st.markdown("## Solucion del Sistema")
 
                 free_labels = ", ".join(f"u{i+1}" for i in free_indices)
                 cons_labels = ", ".join(f"u{i+1}" for i in constrained_indices) if constrained_indices else "ninguno"
+                st.markdown(f"**GDL libres:** {free_labels}  |  **GDL restringidos:** {cons_labels}")
 
-                st.markdown("**GDL libres** (incógnitas): " + free_labels)
-                st.markdown("**GDL restringidos** (valores conocidos = 0): " + cons_labels)
-
-                st.markdown("### 1. Partición del sistema")
-                st.latex(r"\begin{bmatrix} K_{11} & K_{12} \\ K_{21} & K_{22} \end{bmatrix} \begin{bmatrix} u \\ 0 \end{bmatrix} = \begin{bmatrix} F_1 \\ F_2 \end{bmatrix}")
-
+                st.markdown("### 1. Particion $K_{ff} \\cdot u_f = F_f$")
                 c1, c2 = st.columns(2)
                 with c1:
                     labels_free = [f"GDL {i+1}" for i in free_indices]
@@ -1720,234 +1878,99 @@ with tab_matrix:
                     st.markdown("**$F_f$** — Fuerzas en GDL libres")
                     st.dataframe(df_ff, use_container_width=True)
 
-                if K_ff.det() == 0:
-                    st.error("La matriz $K_{libres}$ es singular. La estructura puede ser un mecanismo. Verifica las condiciones de apoyo.")
-                else:
-                    u_f = K_ff.inv() * F_f
-                    u_f = u_f.evalf(6)
+                st.markdown("### 2. Desplazamientos $u_f = K_{ff}^{-1} \\cdot F_f$")
+                disp_data = []
+                for node in all_nodes:
+                    v_dof, r_dof = dof_map[node["id"]]
+                    v_val, r_val = solver.get_node_displacement(node["id"])
+                    if v_val is not None:
+                        disp_data.append({
+                            "Nodo": f"N{node['id']}",
+                            "Tipo": "Deflexion",
+                            "Valor (m)": f"{v_val:.6f}",
+                            "Valor (mm)": f"{v_val*1000:.4f}",
+                        })
+                    if r_val is not None and (r_dof not in constrained_dofs):
+                        disp_data.append({
+                            "Nodo": f"N{node['id']}",
+                            "Tipo": "Rotacion",
+                            "Valor (rad)": f"{r_val:.6f}",
+                            "Valor (mrad)": f"{r_val*1000:.4f}",
+                        })
+                df_disp = pd.DataFrame(disp_data)
+                st.dataframe(df_disp, use_container_width=True, hide_index=True)
 
-                    st.markdown("### 2. Cálculo de desplazamientos")
-                    st.latex(r"\boxed{u = K^{-1} \cdot F}")
+                st.markdown("### 3. Fuerzas en Extremos $Q_e = k_e \\cdot u_e - Qf_e$")
+                ef_data = []
+                for ve in valid_elements:
+                    eid = ve["idx"]
+                    ef = solver.elem_end_forces.get(eid)
+                    if ef:
+                        ef_data.append({
+                            "Elem": f"E{eid}",
+                            "Vi": f"{ef['Vi']:.4f}",
+                            "Mi": f"{ef['Mi']:.4f}",
+                            "Vj": f"{ef['Vj']:.4f}",
+                            "Mj": f"{ef['Mj']:.4f}",
+                        })
+                if ef_data:
+                    df_ef = pd.DataFrame(ef_data)
+                    st.caption("Vi,Vj > 0 = hacia arriba | Mi,Mj > 0 = sagging")
+                    st.dataframe(df_ef, use_container_width=True, hide_index=True)
 
-                    st.markdown("**Sistema de ecuaciones:**")
-                    for row_i in range(len(free_indices)):
-                        terms = []
-                        first = True
-                        for col_j in range(len(free_indices)):
-                            coeff = float(K_ff[row_i, col_j])
-                            if abs(coeff) > 1e-10:
-                                if first:
-                                    sign_str = "" if coeff >= 0 else "-"
-                                    terms.append(f"{sign_str}{abs(coeff):.4f}\\;u_{{{free_indices[col_j]+1}}}")
-                                    first = False
-                                else:
-                                    if coeff >= 0:
-                                        terms.append(f"+ {abs(coeff):.4f}\\;u_{{{free_indices[col_j]+1}}}")
-                                    else:
-                                        terms.append(f"- {abs(coeff):.4f}\\;u_{{{free_indices[col_j]+1}}}")
-                        lhs = " ".join(terms) if terms else "0"
-                        rhs = float(F_f[row_i])
-                        st.latex(f"{lhs} = {rhs:.4f}")
-
-                    st.markdown("**Solución:**")
-                    for i, idx in enumerate(free_indices):
-                        val = float(u_f[i])
-                        st.latex(f"u_{{{idx+1}}} = {val:.6f}")
-
-                    st.markdown("---")
-                    disp_data = []
-                    for i, idx in enumerate(free_indices):
-                        gdl_type = "Deflexión"
-                        node_info = ""
-                        for node in all_nodes:
-                            v, r = dof_map[node["id"]]
-                            if idx + 1 == v:
-                                gdl_type = "Deflexión"
-                                node_info = f"N{node['id']}"
-                                break
-                            elif idx + 1 == r:
-                                gdl_type = "Rotación"
-                                node_info = f"N{node['id']}"
-                                break
-
-                        val = float(u_f[i])
-                        if gdl_type == "Deflexión":
-                            disp_data.append({
-                                "GDL": f"u{idx+1}",
-                                "Tipo": gdl_type,
-                                "Nodo": node_info,
-                                "Valor": f"{val:.6f} m",
-                                "Valor (mm)": f"{val*1000:.4f} mm",
-                            })
-                        else:
-                            disp_data.append({
-                                "GDL": f"u{idx+1}",
-                                "Tipo": gdl_type,
-                                "Nodo": node_info,
-                                "Valor": f"{val*1000:.4f} mrad",
-                                "Valor (mm)": "—",
-                            })
-                    st.markdown("**Tabla de desplazamientos:**")
-                    df_disp = pd.DataFrame(disp_data)
-                    st.dataframe(df_disp, use_container_width=True, hide_index=True)
-
-                    # --- Reacciones ---
-                    if constrained_indices:
-                        K_cf = K_global.extract(constrained_indices, free_indices)
-                        F_c = F_global.extract(constrained_indices, [0])
-                        R_c = K_cf * u_f - F_c
-                        R_c = R_c.evalf(4)
-
-                        st.markdown("---")
-                        st.markdown("### 3. Reacciones en los apoyos")
-                        st.latex(r"\boxed{R = K \cdot u - F}")
-
-                        labels_constrained = [f"GDL {i+1}" for i in constrained_indices]
-                        df_Kcf = matrix_to_df(K_cf, constrained_indices, free_indices)
-                        st.markdown("**$K_{cf}$** — Rigidez apoyos - libres")
-                        st.dataframe(df_Kcf, use_container_width=True)
-
-                        if any(abs(float(F_c[i])) > 1e-10 for i in range(len(constrained_indices))):
-                            df_fc = pd.DataFrame(
-                                [float(F_c[i]) for i in range(len(constrained_indices))],
-                                index=labels_constrained, columns=["Fuerza"]
-                            )
-                            df_fc["Fuerza"] = df_fc["Fuerza"].map(lambda x: f"{x:.4f}")
-                            st.markdown("**$F_c$** — Fuerzas equivalentes en apoyos")
-                            st.dataframe(df_fc, use_container_width=True)
-
-                        st.markdown("**Cálculo:**")
-                        for row_i in range(len(constrained_indices)):
-                            terms = []
-                            first = True
-                            for col_j in range(len(free_indices)):
-                                coeff = float(K_cf[row_i, col_j])
-                                if abs(coeff) > 1e-10:
-                                    u_val = float(u_f[col_j])
-                                    prod = coeff * u_val
-                                    if first:
-                                        sign_str = "" if prod >= 0 else "-"
-                                        terms.append(f"{sign_str}{abs(prod):.4f}")
-                                        first = False
-                                    else:
-                                        if prod >= 0:
-                                            terms.append(f"+ {abs(prod):.4f}")
-                                        else:
-                                            terms.append(f"- {abs(prod):.4f}")
-                            lhs_ku = " ".join(terms) if terms else "0"
-                            fc_val = float(F_c[row_i])
-                            rhs = float(R_c[row_i])
-
-                            st.latex(f"R_{{{constrained_indices[row_i]+1}}} = ({lhs_ku}) - ({fc_val:.4f}) = {rhs:.4f}")
-
-                        rxn_data = []
-                        for i, idx in enumerate(constrained_indices):
-                            gdl_type = "—"
-                            node_info = ""
-                            unit = "kN"
-                            for node in all_nodes:
-                                v, r = dof_map[node["id"]]
-                                if idx + 1 == v:
-                                    gdl_type = "Ry"
-                                    node_info = f"N{node['id']}"
-                                    unit = "kN"
-                                    break
-                                elif idx + 1 == r:
-                                    gdl_type = "M"
-                                    node_info = f"N{node['id']}"
-                                    unit = "kN·m"
-                                    break
-                            val = float(R_c[i])
-                            rxn_data.append({
-                                "Reacción": f"R{idx+1}",
-                                "Tipo": gdl_type,
-                                "Nodo": node_info,
-                                "Valor": f"{val:.4f} {unit}",
-                            })
+                if constrained_indices:
+                    st.markdown("### 4. Reacciones $R = K_{cf} \\cdot u_f - F_c$")
+                    rxn_data = []
+                    for node in all_nodes:
+                        nid = node["id"]
+                        support = next((s for s in data["supports"] if s["node_id"] == nid), None)
+                        if not support:
+                            continue
+                        r = solver.get_reactions().get(nid, {})
+                        rxn_data.append({
+                            "Nodo": f"N{nid}",
+                            "Tipo": support["type"],
+                            "Ry": f"{r.get('Fy',0):.4f}",
+                            "M": f"{r.get('M',0):.4f}" if abs(r.get('M',0)) > 1e-10 else "-",
+                        })
+                    if rxn_data:
                         df_rxn = pd.DataFrame(rxn_data)
-                        st.markdown("**Resultado final — Reacciones:**")
                         st.dataframe(df_rxn, use_container_width=True, hide_index=True)
 
-                        st.markdown("---")
-                        st.markdown("### 4. Comparación con PyNite")
-                        ss_pynite = st.session_state.get("solved_model")
-                        if ss_pynite and hasattr(ss_pynite, 'reaction_force') and ss_pynite.reaction_force:
-                            comp_disp = []
-                            for node in all_nodes:
-                                nid = node["id"]
-                                v_dof, r_dof = dof_map[nid]
-                                pynite_dy = ss_pynite.vertex_id_flection(nid)
-                                mat_dy = None
-                                mat_rot = None
-                                for i_f, idx_f in enumerate(free_indices):
-                                    if idx_f + 1 == v_dof:
-                                        mat_dy = float(u_f[i_f])
-                                    if idx_f + 1 == r_dof:
-                                        mat_rot = float(u_f[i_f])
-                                if mat_dy is not None:
-                                    pynite_mm = pynite_dy * 1000
-                                    mat_mm = mat_dy * 1000
-                                    diff_dy = abs(pynite_mm - mat_mm)
-                                    comp_disp.append({
-                                        "Nodo": f"N{nid}",
-                                        "Mét. Matricial (mm)": f"{mat_mm:.4f}",
-                                        "PyNite (mm)": f"{pynite_mm:.4f}",
-                                        "Error (mm)": f"{diff_dy:.4f}",
-                                    })
-                            if comp_disp:
-                                st.markdown("**Desplazamientos:**")
-                                st.dataframe(pd.DataFrame(comp_disp), use_container_width=True, hide_index=True)
-
-                            comp_data = []
+                    ss_pynite = st.session_state.get("solved_model")
+                    if ss_pynite and hasattr(ss_pynite, 'reaction_force') and ss_pynite.reaction_force:
+                        with st.expander("Comparacion con PyNite"):
+                            comp_rxn = []
                             for node in all_nodes:
                                 nid = node["id"]
                                 py_rxn = ss_pynite.reaction_force.get(nid, {})
-                                v_dof, r_dof = dof_map[nid]
-                                pynite_ry = float(py_rxn.get("Fy", 0)) if isinstance(py_rxn, dict) else 0
-                                pynite_m = float(py_rxn.get("M", 0)) if isinstance(py_rxn, dict) else 0
-                                mat_ry = None
-                                mat_m = None
-                                for idx_i, idx in enumerate(constrained_indices):
-                                    if v_dof and idx + 1 == v_dof:
-                                        mat_ry = float(R_c[idx_i])
-                                    if r_dof and idx + 1 == r_dof:
-                                        mat_m = float(R_c[idx_i])
-                                row = {"Nodo": f"N{nid}"}
-                                if mat_ry is not None:
-                                    row["Mét. Matricial Ry (kN)"] = f"{mat_ry:.4f}"
-                                    row["PyNite Ry (kN)"] = f"{pynite_ry:.4f}"
-                                    row["Error Ry (kN)"] = f"{abs(mat_ry - pynite_ry):.4f}"
-                                if mat_m is not None:
-                                    row["Mét. Matricial M (kN·m)"] = f"{mat_m:.4f}"
-                                    row["PyNite M (kN·m)"] = f"{pynite_m:.4f}"
-                                    row["Error M (kN·m)"] = f"{abs(mat_m - pynite_m):.4f}"
-                                if len(row) > 1:
-                                    comp_data.append(row)
-                            if comp_data:
+                                py_ry = float(py_rxn.get("Fy", 0)) if isinstance(py_rxn, dict) else 0
+                                mat_rxn = solver.get_reactions().get(nid, {})
+                                mat_ry = mat_rxn.get("Fy", 0)
+                                if abs(mat_ry) > 1e-10 or abs(py_ry) > 1e-10:
+                                    comp_rxn.append({
+                                        "Nodo": f"N{nid}",
+                                        "M. Matricial Ry": f"{mat_ry:.4f}",
+                                        "PyNite Ry": f"{py_ry:.4f}",
+                                        "Error": f"{abs(mat_ry-py_ry):.4f}",
+                                    })
+                            if comp_rxn:
                                 st.markdown("**Reacciones:**")
-                                st.dataframe(pd.DataFrame(comp_data), use_container_width=True, hide_index=True)
-                            if not comp_disp and not comp_data:
-                                st.info("Sin datos para comparar.")
-                        else:
-                            st.warning("No hay resultados de PyNite disponibles para comparar.")
+                                st.dataframe(pd.DataFrame(comp_rxn), use_container_width=True, hide_index=True)
+                else:
+                    st.info("No hay apoyos definidos. No se pueden calcular reacciones.")
 
-                        support_nodes = [n for n in all_nodes if any(s["node_id"] == n["id"] for s in data["supports"])]
-                        if support_nodes:
-                            st.markdown("---")
-                            st.markdown("###  Resumen de reacciones")
-                            for node in support_nodes:
-                                v_dof, r_dof = dof_map[node["id"]]
-                                support = next((s for s in data["supports"] if s["node_id"] == node["id"]), None)
-                                parts = []
-                                for idx_i, idx in enumerate(constrained_indices):
-                                    if idx + 1 == v_dof:
-                                        parts.append(f"Ry = {float(R_c[idx_i]):.4f} kN")
-                                    if idx + 1 == r_dof:
-                                        parts.append(f"M = {float(R_c[idx_i]):.4f} kN·m")
-                                if parts:
-                                    st.markdown(f"**Nodo N{node['id']}** ({support['type']}): {' &nbsp;|&nbsp; '.join(parts)}")
-                    else:
-                        st.info("No hay apoyos definidos. No se pueden calcular reacciones.")
+                st.markdown("### 5. Equilibrio $\\sum F_y = 0$")
+                eq_check = solver.verify_equilibrium()
+                col_eq1, col_eq2, col_eq3 = st.columns(3)
+                col_eq1.metric("Cargas totales (kN)", f"{eq_check['total_load']:.4f}")
+                col_eq2.metric("Reacciones totales (kN)", f"{eq_check['total_reaction']:.4f}")
+                col_eq3.metric("Error (kN)", f"{eq_check['error']:.6f}",
+                              delta="OK" if eq_check['passed'] else "FALLA")
+                if eq_check["passed"]:
+                    st.success("Equilibrio vertical verificado: ΣFy ≈ 0")
+                else:
+                    st.error(f"Equilibrio NO verificado: error = {eq_check['error']:.6f} kN")
 
 # --- Footer ---
 st.divider()
