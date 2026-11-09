@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from desarrollo_matricial_cerchas import show_matrix_steps
 from solucionador_cerchas import TrussMatrixSolver, normalize_truss
 
 
@@ -253,29 +254,6 @@ def _show_results(truss, solution):
             st.markdown(f"**Desplazamiento por trabajo virtual · {total} mm**")
 
 
-def _show_matrix(solution):
-    st.latex(r"\mathbf{b}_e = [-c,-s,c,s], \qquad k_e = \frac{E_e A_e}{L_e}\mathbf{b}_e^T\mathbf{b}_e")
-    st.latex(r"p_{0,e} = \frac{E_e A_e}{L_e}\Delta L_{0,e}\,\mathbf{b}_e^T, \qquad K_{ff}u_f = (P + P_0)_f")
-    st.latex(r"N_e = \frac{E_e A_e}{L_e}(\mathbf{b}_e u_e - \Delta L_{0,e}), \qquad R = Ku - (P + P_0)")
-    st.caption("Las matrices están en kN/m. P₀ reúne las cargas equivalentes de los desajustes.")
-    matrix_type = st.radio("Matriz de rigidez", ["Reducida (grados libres)", "Global"], horizontal=True)
-    if matrix_type == "Global":
-        labels, matrix = solution.labels, solution.K
-    else:
-        labels, matrix = [solution.labels[i] for i in solution.free], solution.Kff
-    if labels:
-        st.dataframe(pd.DataFrame(matrix, index=labels, columns=labels).round(4),
-                     alt="Matriz de rigidez de la cercha")
-    else:
-        st.info("Todos los grados de libertad están restringidos.")
-    st.dataframe(pd.DataFrame({
-        "Grado": solution.labels,
-        "P (kN)": np.round(solution.loads, 6),
-        "P₀ (kN)": np.round(solution.initial_loads, 6),
-        "u (mm)": np.round(solution.u * 1000, 6) + 0.0,
-    }), hide_index=True, alt="Vectores de carga y desplazamiento por grado de libertad")
-
-
 def render_truss():
     if "truss_project" not in st.session_state:
         set_truss_project(_new_project())
@@ -302,6 +280,9 @@ def render_truss():
     else:
         st.subheader(project["name"])
         if view == "Resultados":
+            if st.button("Ver método matricial paso a paso", key="truss_matrix_steps"):
+                st.session_state.truss_next_view = "Método matricial"
+                st.rerun()
             if "solution" in project:
                 saved_solution = project["solution"]
                 st.success(saved_solution["answer"], title="Solución guardada")
@@ -309,4 +290,4 @@ def render_truss():
                     st.markdown("\n\n".join(saved_solution["steps"]))
             _show_results(truss, solution)
         else:
-            _show_matrix(solution)
+            show_matrix_steps(truss, solution, project.get("solution", {}))

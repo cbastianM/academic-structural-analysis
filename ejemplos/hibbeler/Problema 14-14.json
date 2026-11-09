@@ -19,6 +19,10 @@
   },
   "solution": {
     "answer": "La barra 3 queda en tracción con 3,550 kip (15,792 kN).",
+    "matrix": {
+      "dof_order": ["N3 X", "N3 Y", "N1 X", "N1 Y", "N2 X", "N2 Y", "N4 X", "N4 Y"],
+      "units": "kip_in"
+    },
     "steps": [
       "Se aplica una carga horizontal de 3 kip hacia la derecha en el nodo 1. El nodo 4 es articulado y la biela corta del nodo 2 se idealiza mediante una restricción vertical. Las dos diagonales se cruzan sin un nodo intermedio.",
       "El modelo convierte al SI los 8 ft por 6 ft del croquis, $A=2\\ \\mathrm{in}^2$, $E=29\\,000\\ \\mathrm{ksi}$ y el desajuste $\\Delta L_{0,3}=-0{,}025\\ \\mathrm{in}=-0{,}635\\ \\mathrm{mm}$.",
