@@ -25,6 +25,88 @@
       "dof_order": ["N3 X", "N3 Y", "N4 X", "N4 Y", "N2 X", "N2 Y", "N1 Y", "N1 X", "N5 X", "N5 Y"],
       "target_dof": "N2 Y"
     },
+    "guide": [
+      {
+        "title": "Ubica lo que se puede mover",
+        "body": [
+          "**¿Cuánto sube o baja el nodo 2 al montar la barra 6, que es 10 mm más larga de lo previsto?** Se retira la carga de 20 kN antes de calcular.",
+          "Un **grado de libertad** es una dirección en la que medimos movimiento. En el nodo 2 llamamos $u_5$ al movimiento horizontal y $u_6$ al vertical. Los signos positivos indican derecha y arriba.",
+          "El rodillo contra el muro impide que el nodo 1 se mueva en horizontal, así que $u_8=0$. El apoyo del nodo 5 impide ambos movimientos, así que $u_9=u_{10}=0$.",
+          "**Busca en el dibujo** el nodo 2 y la barra inferior de color naranja. Calcularemos $u_6$."
+        ]
+      },
+      {
+        "title": "Calcula la rigidez de una barra",
+        "body": [
+          "Imagina la barra 6 como un resorte horizontal. Si sus extremos se separan, la barra se alarga. Su rigidez $k_6$ depende de la rigidez del material $E$, del área de la sección $A$ y de la longitud entre nodos $L_6$.",
+          "$$k_6=\\frac{EA}{L_6}$$",
+          "$$k_6=\\frac{(200\\,000\\,000\\ \\mathrm{kN/m^2})(0{,}0015\\ \\mathrm{m^2})}{4\\ \\mathrm{m}}=75\\,000\\ \\mathrm{kN/m}$$",
+          "Si el nodo 2 se mueve a la derecha, la distancia entre ambos extremos aumenta. Si el nodo 1 se mueve a la derecha, esa distancia disminuye. El cambio de longitud geométrico es $d_6=u_5-u_8$.",
+          "En la matriz, la primera fila expresa $k_6(u_5-u_8)$ y la segunda $k_6(u_8-u_5)$. Al ser horizontal, la barra solo aporta a los grados 5 y 8.",
+          "$$K_x^{(6)}=k_6\\begin{bmatrix}1&-1\\\\-1&1\\end{bmatrix}=\\begin{bmatrix}75\\,000&-75\\,000\\\\-75\\,000&75\\,000\\end{bmatrix}\\ \\mathrm{kN/m}$$"
+        ]
+      },
+      {
+        "title": "Incluye los 10 mm de exceso",
+        "body": [
+          "La barra ya mide 10 mm de más antes de montarla. Si los nodos se separan exactamente esos 10 mm, la barra queda a su longitud natural y su fuerza axial es cero.",
+          "$$N_6=k_6(d_6-\\Delta L_{0,6})$$",
+          "En la ecuación horizontal del nodo 2, dejamos $k_6(u_5-u_8)$ a la izquierda y pasamos $-k_6\\Delta L_{0,6}$ a la derecha. Ese aporte al lado derecho se llama **carga equivalente**.",
+          "$$(P_0)_5=k_6\\Delta L_{0,6}=(75\\,000)(0{,}010)=+750\\ \\mathrm{kN}$$",
+          "El extremo del nodo 1 recibe el aporte opuesto, $(P_0)_8=-750\\ \\mathrm{kN}$. Estos valores incorporan el exceso de longitud a las ecuaciones. La carga externa sigue retirada."
+        ]
+      },
+      {
+        "title": "Arma una fila de la matriz",
+        "body": [
+          "La **fila 5** reúne los aportes de las barras al equilibrio horizontal del nodo 2. La **columna 5** indica cuánto aporta el propio movimiento $u_5$. La barra 4 es vertical, así que su aporte a esta componente es cero.",
+          "Las barras 1 y 5 son diagonales de 5 m. Su rigidez axial es $EA/5=60\\,000\\ \\mathrm{kN/m}$. Para un movimiento horizontal, proyectamos el desplazamiento sobre la barra y luego la fuerza de regreso a X. Por eso el factor horizontal $4/5$ aparece dos veces.",
+          "$$K_{55}^{(\\mathrm{diagonal})}=\\frac{EA}{L}\\left(\\frac{4}{5}\\right)^2=(60\\,000)(0{,}8)^2=38\\,400\\ \\mathrm{kN/m}$$",
+          "$$K_{55}=K_{55}^{(1)}+K_{55}^{(5)}+K_{55}^{(6)}=38\\,400+38\\,400+75\\,000=151\\,800\\ \\mathrm{kN/m}$$",
+          "Para los términos que combinan un movimiento en Y y una fuerza en X usamos ambas proyecciones. El valor es $(60\\,000)(0{,}8)(0{,}6)=28\\,800$. Las diagonales tienen inclinaciones opuestas y sus aportes a $u_6$ se cancelan.",
+          "Tras sumar los aportes, el nodo 3 entra en esta fila con $-38\\,400u_1-28\\,800u_2$. Son los desplazamientos del otro extremo de la barra 1. En el siguiente paso veremos qué ocurre con los términos de los apoyos."
+        ]
+      },
+      {
+        "title": "Quita los movimientos fijos",
+        "body": [
+          "Como $u_8=u_9=u_{10}=0$, sus columnas multiplican cero. Las ecuaciones de esos apoyos sirven después para hallar las reacciones. Para calcular los movimientos quedan las siete filas libres, de la 1 a la 7.",
+          "$$K_{ff}u_f=(P+P_0)_f$$",
+          "Lee cada fila como una ecuación. Por ejemplo, el $151\\,800$ que calculamos en la fila 5 multiplica a $u_5$. A la derecha aparece el $750$ de la barra 6. Para hallar $u_6$ usaremos estas cuatro filas del sistema reducido.",
+          "$$\\begin{aligned} \\mathrm{F}_2\\quad &28\\,800(u_1-u_5)+21\\,600(u_2-u_6)=0\\\\ \\mathrm{F}_4\\quad &100\\,000(u_4-u_6)=0\\\\ \\mathrm{F}_5\\quad &-38\\,400u_1-28\\,800u_2+151\\,800u_5=750\\\\ \\mathrm{F}_6\\quad &-28\\,800u_1-21\\,600u_2-100\\,000u_4+143\\,200u_6=0 \\end{aligned}$$"
+        ]
+      },
+      {
+        "title": "Relaciona los dos movimientos del nodo 2",
+        "body": [
+          "Empieza por la fila 4. Divide entre $100\\,000$ y obtienes $u_4=u_6$. Eso nos permite reemplazar $u_4$ por $u_6$ en otra ecuación.",
+          "Ahora suma la fila 2 a la fila 6. Los términos con $u_1$ y $u_2$ tienen signos opuestos, de modo que se cancelan.",
+          "$$\\begin{aligned} \\mathrm{F}_6+\\mathrm{F}_2\\quad &-28\\,800u_5-100\\,000u_4+121\\,600u_6=0\\\\ \\text{Con }u_4=u_6\\quad &-28\\,800u_5+21\\,600u_6=0 \\end{aligned}$$",
+          "$$u_6=\\frac{28\\,800}{21\\,600}u_5=\\frac{4}{3}u_5$$",
+          "Ya sabemos cómo se relacionan los dos movimientos del nodo 2. Si calculamos el horizontal, podemos obtener el vertical."
+        ]
+      },
+      {
+        "title": "Despeja el movimiento horizontal",
+        "body": [
+          "En la fila 5 también queremos cancelar $u_1$ y $u_2$. Multiplica la fila 2 por $4/3$ para que sus coeficientes sean $+38\\,400$ y $+28\\,800$. Al sumar ambas filas, quedan solo $u_5$ y $u_6$.",
+          "$$\\mathrm{F}_5+\\tfrac{4}{3}\\mathrm{F}_2\\quad\\Rightarrow\\quad113\\,400u_5-28\\,800u_6=750$$",
+          "Reemplaza $u_6$ por $\\tfrac{4}{3}u_5$ y reúne los términos que multiplican a $u_5$.",
+          "$$\\left(113\\,400-28\\,800\\cdot\\frac{4}{3}\\right)u_5=750$$",
+          "$$u_5=\\frac{750}{75\\,000}=0{,}010\\ \\mathrm{m}$$",
+          "El nodo 2 se desplaza 10 mm a la derecha. Ese movimiento deja que la barra 6 tome su longitud natural."
+        ]
+      },
+      {
+        "title": "Responde cuánto sube el nodo 2",
+        "body": [
+          "Recupera la relación que obtuvimos al sumar las filas 6 y 2.",
+          "$$u_6=\\frac{4}{3}u_5$$",
+          "$$u_6=\\frac{4}{3}(0{,}010\\ \\mathrm{m})=0{,}013333\\ \\mathrm{m}=+13{,}333\\ \\mathrm{mm}$$",
+          "**El nodo 2 sube 13,333 mm.** El signo positivo corresponde al sentido hacia arriba que fijamos al inicio."
+        ]
+      }
+    ],
     "steps": [
       "Se retira la carga de 20 kN. El nodo 1 queda restringido en X y el nodo 5 en X e Y. La barra 6 tiene un exceso de longitud de 10 mm. Para todas las barras, $A=0{,}0015\\ \\mathrm{m}^2$ y $E=200\\ \\mathrm{GPa}$.",
       "La cercha isostática acomoda el exceso de longitud con fuerzas axiales reales nulas. Al aplicar una carga virtual unitaria hacia arriba en el nodo 2, el equilibrio de ese nodo da $0{,}6n_5+1=0$ y $-0{,}8n_5-n_6=0$. Por tanto, $n_6=4/3$.",

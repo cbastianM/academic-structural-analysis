@@ -23,6 +23,87 @@
       "dof_order": ["N3 X", "N3 Y", "N1 X", "N1 Y", "N2 X", "N2 Y", "N4 X", "N4 Y"],
       "units": "kip_in"
     },
+    "guide": [
+      {
+        "title": "Ubica la barra y sus extremos",
+        "body": [
+          "**¿Qué fuerza queda en la barra superior 3 si antes de instalarla era 0,025 in más corta?** La carga de 3 kip actúa a la derecha en el nodo 1.",
+          "Para saber cuánto se estira la barra 3 necesitamos los movimientos horizontales de sus extremos. En el croquis son $u_1$ para el nodo 3 y $u_7$ para el nodo 4. Cada $u$ representa un movimiento en la dirección que indica su flecha.",
+          "El nodo 4 está fijo en X e Y, así que $u_7=u_8=0$. La biela corta del nodo 2 se representa con una restricción vertical, $u_6=0$. Las diagonales se cruzan sin un nodo en el centro.",
+          "**Busca en el dibujo** la barra superior naranja. Primero calcularemos $u_1$ y luego la fuerza en esa barra. Usaremos kip y pulgadas, como en el enunciado."
+        ]
+      },
+      {
+        "title": "Calcula la rigidez de la barra 3",
+        "body": [
+          "La barra superior se comporta como un resorte horizontal. Su rigidez $k_3$ depende de la rigidez del material $E$, del área de la sección $A$ y de la longitud $L_3$. Convertimos 8 ft a 96 in para usar unidades compatibles.",
+          "$$k_3=\\frac{EA}{L_3}$$",
+          "$$k_3=\\frac{(29\\,000\\ \\mathrm{kip/in^2})(2\\ \\mathrm{in^2})}{96\\ \\mathrm{in}}=604{,}1667\\ \\mathrm{kip/in}$$",
+          "Si el extremo derecho se mueve a la derecha, la barra se alarga. Si el extremo izquierdo se mueve a la derecha, se acorta. El cambio de longitud geométrico es $d_3=u_1-u_7$.",
+          "En la matriz, la primera fila expresa $k_3(u_1-u_7)$ y la segunda $k_3(u_7-u_1)$. Estas filas y columnas ocupan los grados horizontales 1 y 7.",
+          "$$K_x^{(3)}=k_3\\begin{bmatrix}1&-1\\\\-1&1\\end{bmatrix}\\approx\\begin{bmatrix}604{,}1667&-604{,}1667\\\\-604{,}1667&604{,}1667\\end{bmatrix}\\ \\mathrm{kip/in}$$"
+        ]
+      },
+      {
+        "title": "Incluye el acortamiento de fabricación",
+        "body": [
+          "La barra se fabricó más corta, de modo que $\\Delta L_{0,3}=-0{,}025\\ \\mathrm{in}$. Al montarla, el alargamiento que produce fuerza se mide desde esa longitud más corta.",
+          "$$N_3=k_3(d_3-\\Delta L_{0,3})$$",
+          "Para armar la ecuación del extremo derecho, dejamos $k_3(u_1-u_7)$ a la izquierda y pasamos $-k_3\\Delta L_{0,3}$ a la derecha. El término que pasa se llama **carga equivalente**.",
+          "$$(P_0)_1=k_3\\Delta L_{0,3}=(604{,}1667)(-0{,}025)=-15{,}1042\\ \\mathrm{kip}$$",
+          "En el extremo izquierdo aparece el aporte contrario, $(P_0)_7=+15{,}1042\\ \\mathrm{kip}$. La carga aplicada de 3 kip sigue en el nodo 1 y corresponde a la fila 3."
+        ]
+      },
+      {
+        "title": "Arma la primera fila de la matriz",
+        "body": [
+          "La fila 1 corresponde al equilibrio horizontal del nodo 3. La barra 1 es vertical, así que en esta fila aportan la barra superior 3 y la diagonal 5.",
+          "La diagonal mide 120 in y tiene proyecciones de 96 in en X y 72 in en Y. Su rigidez es $EA/120=483{,}3333\\ \\mathrm{kip/in}$. Para el coeficiente horizontal, proyectamos el movimiento sobre la barra y luego la fuerza de regreso a X.",
+          "$$K_{11}^{(5)}=\\frac{EA}{L_5}\\left(\\frac{96}{120}\\right)^2=(483{,}3333)(0{,}8)^2=309{,}3333\\ \\mathrm{kip/in}$$",
+          "$$K_{11}=K_{11}^{(3)}+K_{11}^{(5)}=604{,}1667+309{,}3333=913{,}5\\ \\mathrm{kip/in}$$",
+          "En esa misma fila, el aporte cruzado de la diagonal usa una proyección en X y otra en Y. De ahí sale $483{,}3333(0{,}8)(0{,}6)=232$. La diagonal aporta $309{,}3333(u_1-u_3)+232(u_2-u_4)$."
+        ]
+      },
+      {
+        "title": "Lee las cinco ecuaciones que quedan",
+        "body": [
+          "Al poner $u_6=u_7=u_8=0$, solo quedan cinco movimientos por calcular. En cada fila multiplicamos los coeficientes por sus desplazamientos y los igualamos a la carga aplicada más la equivalente.",
+          "$$K_{ff}u_f=(P+P_0)_f$$",
+          "La fila 1 tiene $-15{,}104167$ kip por el acortamiento y la fila 3 tiene $+3$ kip por la carga externa. Las cifras se muestran redondeadas.",
+          "$$\\begin{aligned} \\mathrm{F}_1\\quad &913{,}5u_1+232(u_2-u_4)-309{,}333333u_3=-15{,}104167\\\\ \\mathrm{F}_2\\quad &232(u_1-u_3)+979{,}555556u_2-174u_4=0\\\\ \\mathrm{F}_3\\quad &-309{,}333333u_1-232(u_2-u_4)+913{,}5u_3-604{,}166667u_5=3\\\\ \\mathrm{F}_4\\quad &-232(u_1-u_3)-174u_2+979{,}555556u_4=0\\\\ \\mathrm{F}_5\\quad &-604{,}166667u_3+913{,}5u_5=0 \\end{aligned}$$"
+        ]
+      },
+      {
+        "title": "Reduce el sistema a dos incógnitas",
+        "body": [
+          "Busca ecuaciones donde se puedan cancelar términos. Al sumar las filas 2 y 4 desaparece $232(u_1-u_3)$, porque aparece con signos opuestos.",
+          "$$\\mathrm{F}_2+\\mathrm{F}_4\\quad\\Rightarrow\\quad(979{,}555556-174)(u_2+u_4)=0\\quad\\Rightarrow\\quad u_4=-u_2$$",
+          "Sustituye $u_4=-u_2$ en la fila 2 y despeja $u_2$. En la fila 5, despeja $u_5$ dividiendo entre $913{,}5$.",
+          "$$\\begin{aligned} u_2&=-\\frac{232}{979{,}555556+174}(u_1-u_3)\\approx-0{,}201117318(u_1-u_3)\\\\ u_5&=\\frac{604{,}166667}{913{,}5}u_3\\approx0{,}661375661u_3 \\end{aligned}$$",
+          "Ahora podemos escribir $u_2$, $u_4$ y $u_5$ usando solo $u_1$ y $u_3$. Eso permite reducir las filas 1 y 3."
+        ]
+      },
+      {
+        "title": "Despeja el movimiento del extremo derecho",
+        "body": [
+          "Sustituye las expresiones del paso anterior en las filas 1 y 3. Por ejemplo, en la fila 1 el término $232(u_2-u_4)$ se convierte en $-464(0{,}201117318)(u_1-u_3)$. Al reunir los términos de $u_1$ queda $913{,}5-464(0{,}201117318)=820{,}181564$.",
+          "$$\\begin{aligned} \\mathrm{A}\\quad &820{,}181564u_1-216{,}014898u_3=-15{,}104167\\\\ \\mathrm{B}\\quad &-216{,}014898u_1+420{,}600435u_3=3 \\end{aligned}$$",
+          "Para cancelar $u_3$, multiplica B por el cociente de los coeficientes $216{,}014898/420{,}600435\\approx0{,}513587$ y suma el resultado a A.",
+          "$$\\mathrm{A}+0{,}513587\\,\\mathrm{B}\\quad\\Rightarrow\\quad709{,}239130u_1\\approx-13{,}563406$$",
+          "$$u_1\\approx\\frac{-13{,}563406}{709{,}239130}=-0{,}01912388\\ \\mathrm{in}$$",
+          "El signo negativo indica que el extremo derecho de la barra superior se mueve a la izquierda."
+        ]
+      },
+      {
+        "title": "Calcula la fuerza en la barra 3",
+        "body": [
+          "El extremo izquierdo está fijo, $u_7=0$. El cambio geométrico de longitud es $d_3=u_1-u_7=-0{,}01912388\\ \\mathrm{in}$. La barra se acorta respecto al croquis, pero queda más larga que su longitud de fabricación, que era $0{,}025$ in menor.",
+          "$$N_3=k_3\\big[(u_1-u_7)-\\Delta L_{0,3}\\big]$$",
+          "$$N_3=(604{,}1667\\ \\mathrm{kip/in})\\big[(-0{,}01912388)-(-0{,}025)\\big]\\,\\mathrm{in}=+3{,}55015\\ \\mathrm{kip}$$",
+          "**La barra 3 queda en tracción de 3,550 kip (15,792 kN).** Se estira aproximadamente 0,00588 in respecto a su propia longitud natural."
+        ]
+      }
+    ],
     "steps": [
       "Se aplica una carga horizontal de 3 kip hacia la derecha en el nodo 1. El nodo 4 es articulado y la biela corta del nodo 2 se idealiza mediante una restricción vertical. Las dos diagonales se cruzan sin un nodo intermedio.",
       "El modelo convierte al SI los 8 ft por 6 ft del croquis, $A=2\\ \\mathrm{in}^2$, $E=29\\,000\\ \\mathrm{ksi}$ y el desajuste $\\Delta L_{0,3}=-0{,}025\\ \\mathrm{in}=-0{,}635\\ \\mathrm{mm}$.",

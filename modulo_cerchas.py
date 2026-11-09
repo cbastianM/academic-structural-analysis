@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from desarrollo_matricial_cerchas import show_matrix_steps
+from desarrollo_matricial_cerchas import show_dof_reference, show_matrix_steps
 from solucionador_cerchas import TrussMatrixSolver, normalize_truss
 
 
@@ -254,6 +254,57 @@ def _show_results(truss, solution):
             st.markdown(f"**Desplazamiento por trabajo virtual · {total} mm**")
 
 
+def _set_guide_step(key, step):
+    st.session_state[key] = step
+
+
+def _show_matrix_guide(truss, solution, saved_solution):
+    steps = saved_solution.get("guide")
+    if not isinstance(steps, list) or not steps or any(
+        not isinstance(step, dict)
+        or not isinstance(step.get("title"), str)
+        or not isinstance(step.get("body"), list)
+        or not all(isinstance(paragraph, str) for paragraph in step["body"])
+        for step in steps
+    ):
+        return False
+
+    revision = st.session_state.truss_revision
+    mode = st.segmented_control(
+        "Forma de estudio", ["Guía desde cero", "Matrices completas"], default="Guía desde cero",
+        key=f"truss_matrix_mode_{revision}", label_visibility="collapsed", required=True, width="stretch",
+    )
+    if mode == "Matrices completas":
+        return False
+
+    key = f"truss_guide_step_{revision}"
+    index = st.selectbox(
+        "Paso del ejercicio", list(range(len(steps))), key=key, required=True, persist_state="session",
+        format_func=lambda i: f"{i + 1}. {steps[i]['title']}",
+    )
+    st.progress((index + 1) / len(steps), text=f"Paso {index + 1} de {len(steps)}")
+    if st.toggle("Mostrar qué significa cada u", key=f"truss_guide_dofs_{revision}"):
+        show_dof_reference(solution, saved_solution)
+    step = steps[index]
+    with st.container(border=True):
+        st.subheader(step["title"])
+        st.markdown("\n\n".join(step["body"]))
+        if index == 0:
+            _plot_model(truss)
+    previous, following = st.columns(2)
+    previous.button("Anterior", key="truss_guide_previous", icon=":material/arrow_back:",
+                    disabled=index == 0, on_click=_set_guide_step, args=(key, index - 1),
+                    width="stretch")
+    if index + 1 < len(steps):
+        following.button("Siguiente", key="truss_guide_next", icon=":material/arrow_forward:",
+                         type="primary", on_click=_set_guide_step, args=(key, index + 1),
+                         width="stretch")
+    else:
+        following.button("Volver al primer paso", key="truss_guide_restart",
+                         on_click=_set_guide_step, args=(key, 0), width="stretch")
+    return True
+
+
 def render_truss():
     if "truss_project" not in st.session_state:
         set_truss_project(_new_project())
@@ -280,14 +331,16 @@ def render_truss():
     else:
         st.subheader(project["name"])
         if view == "Resultados":
-            if st.button("Ver método matricial paso a paso", key="truss_matrix_steps"):
+            if st.button("Ver método matricial paso a paso", key="truss_matrix_steps", type="primary"):
                 st.session_state.truss_next_view = "Método matricial"
                 st.rerun()
             if "solution" in project:
                 saved_solution = project["solution"]
                 st.success(saved_solution["answer"], title="Solución guardada")
-                with st.expander("Desarrollo del ejercicio"):
+                with st.expander("Resumen de la solución"):
                     st.markdown("\n\n".join(saved_solution["steps"]))
             _show_results(truss, solution)
         else:
-            show_matrix_steps(truss, solution, project.get("solution", {}))
+            saved_solution = project.get("solution", {})
+            if not _show_matrix_guide(truss, solution, saved_solution):
+                show_matrix_steps(truss, solution, saved_solution)

@@ -16,6 +16,8 @@ def _matrix(values):
 
 
 def _display_order(labels, reference):
+    if not isinstance(reference, dict):
+        return list(range(len(labels)))
     order = reference.get("dof_order")
     if (
         isinstance(order, list)
@@ -24,6 +26,21 @@ def _display_order(labels, reference):
     ):
         return [labels.index(label) for label in order]
     return list(range(len(labels)))
+
+
+def show_dof_reference(solution, saved_solution):
+    order = _display_order(solution.labels, saved_solution.get("matrix"))
+    number = {dof: i for i, dof in enumerate(order, start=1)}
+    fixed = set(solution.fixed)
+
+    def label(dof):
+        symbol = f"u{number[dof]}"
+        return f"{symbol} = 0" if dof in fixed else f"{symbol} (libre)"
+
+    st.table(pd.DataFrame([
+        {"Nodo": f"N{node}", "Horizontal (→)": label(x), "Vertical (↑)": label(y)}
+        for node, (x, y) in solution.dofs.items()
+    ]), hide_index=True, alt="Correspondencia entre nodo, dirección y número de desplazamiento")
 
 
 def _show_triangular_solve(matrix, rhs, headers, numbers, displacement, length_unit):
