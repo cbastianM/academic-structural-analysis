@@ -5,6 +5,7 @@ import io
 import numpy as np
 from Pynite import FEModel3D
 from solucionador_matricial import BeamMatrixSolver
+from modulo_cerchas import render_truss, set_truss_project
 from datetime import datetime
 import pandas as pd
 import sympy as sp
@@ -104,8 +105,9 @@ if st.session_state.pagina == "home":
             st.session_state.pagina = "app"
             st.rerun()
     with col2:
-        if st.button("CERCHAS", use_container_width=True):
-            st.warning("Proximamente.")
+        if st.button("CERCHAS", width="stretch", key="open_truss"):
+            st.session_state.pagina = "cerchas"
+            st.rerun()
     with col3:
         if st.button("PORTICOS", use_container_width=True):
             st.warning("Proximamente.")
@@ -146,12 +148,20 @@ if st.session_state.pagina == "home":
                         else:
                             for stem, model_data in models:
                                 nombre = model_data.get("name", stem)
-                                if st.button(nombre, key=f"hm_{key}_{stem}", use_container_width=True):
-                                    st.session_state.beam_data = model_data
-                                    st.session_state.solved_model = None
-                                    st.session_state.pagina = "app"
+                                if st.button(nombre, key=f"hm_{key}_{stem}", width="stretch"):
+                                    if "truss" in model_data:
+                                        set_truss_project(model_data)
+                                        st.session_state.pagina = "cerchas"
+                                    else:
+                                        st.session_state.beam_data = model_data
+                                        st.session_state.solved_model = None
+                                        st.session_state.pagina = "app"
                                     st.rerun()
 
+    st.stop()
+
+if st.session_state.pagina == "cerchas":
+    render_truss()
     st.stop()
 
 # ----------------------------------------------------------------

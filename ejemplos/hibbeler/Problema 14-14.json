@@ -1,0 +1,31 @@
+{
+  "version": "1.0.0",
+  "name": "Problema 14-14 · Fuerza en la barra 3",
+  "truss": {
+    "nodes": [
+      {"id": 1, "x": 0, "y": 0, "fx": 13.3446648457815},
+      {"id": 2, "x": 2.4384, "y": 0, "fix_y": true},
+      {"id": 3, "x": 2.4384, "y": 1.8288},
+      {"id": 4, "x": 0, "y": 1.8288, "fix_x": true, "fix_y": true}
+    ],
+    "elements": [
+      {"id": 1, "start_node": 3, "end_node": 2, "e_gpa": 199.9479615018825, "area": 0.00129032},
+      {"id": 2, "start_node": 2, "end_node": 1, "e_gpa": 199.9479615018825, "area": 0.00129032},
+      {"id": 3, "start_node": 3, "end_node": 4, "e_gpa": 199.9479615018825, "area": 0.00129032, "delta_l_mm": -0.635},
+      {"id": 4, "start_node": 1, "end_node": 4, "e_gpa": 199.9479615018825, "area": 0.00129032},
+      {"id": 5, "start_node": 3, "end_node": 1, "e_gpa": 199.9479615018825, "area": 0.00129032},
+      {"id": 6, "start_node": 2, "end_node": 4, "e_gpa": 199.9479615018825, "area": 0.00129032}
+    ]
+  },
+  "solution": {
+    "answer": "La barra 3 queda en tracción con 3,550 kip (15,792 kN).",
+    "steps": [
+      "Se aplica una carga horizontal de 3 kip hacia la derecha en el nodo 1. El nodo 4 es articulado y la biela corta del nodo 2 se idealiza mediante una restricción vertical. Las dos diagonales se cruzan sin un nodo intermedio.",
+      "El modelo convierte al SI los 8 ft por 6 ft del croquis, $A=2\\ \\mathrm{in}^2$, $E=29\\,000\\ \\mathrm{ksi}$ y el desajuste $\\Delta L_{0,3}=-0{,}025\\ \\mathrm{in}=-0{,}635\\ \\mathrm{mm}$.",
+      "Al resolver el sistema de rigidez con la carga nodal y el desajuste, $u_{3x}=-0{,}01912388\\ \\mathrm{in}$ y $u_{4x}=0$. Para la barra horizontal superior, la fuerza axial se recupera con su longitud nominal de 96 in.",
+      "$$N_3=\\frac{E_3A_3}{L_3}\\left[(u_{3x}-u_{4x})-\\Delta L_{0,3}\\right]$$",
+      "$$N_3=\\frac{(29\\,000\\ \\mathrm{kip/in}^2)(2\\ \\mathrm{in}^2)}{96\\ \\mathrm{in}}\\left[(-0{,}01912388+0{,}025)\\ \\mathrm{in}\\right]=+3{,}55015\\ \\mathrm{kip}$$",
+      "El signo positivo indica tracción."
+    ]
+  }
+}

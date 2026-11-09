@@ -1,0 +1,31 @@
+{
+  "version": "1.0.0",
+  "name": "Problema 14-11 · Desajuste de fabricación",
+  "truss": {
+    "nodes": [
+      {"id": 1, "x": 0, "y": 0, "fix_x": true},
+      {"id": 2, "x": 4, "y": 0},
+      {"id": 3, "x": 8, "y": 3},
+      {"id": 4, "x": 4, "y": 3},
+      {"id": 5, "x": 0, "y": 3, "fix_x": true, "fix_y": true}
+    ],
+    "elements": [
+      {"id": 1, "start_node": 2, "end_node": 3, "e_gpa": 200, "area": 0.0015},
+      {"id": 2, "start_node": 4, "end_node": 3, "e_gpa": 200, "area": 0.0015},
+      {"id": 3, "start_node": 5, "end_node": 4, "e_gpa": 200, "area": 0.0015},
+      {"id": 4, "start_node": 2, "end_node": 4, "e_gpa": 200, "area": 0.0015},
+      {"id": 5, "start_node": 5, "end_node": 2, "e_gpa": 200, "area": 0.0015},
+      {"id": 6, "start_node": 1, "end_node": 2, "e_gpa": 200, "area": 0.0015, "delta_l_mm": 10},
+      {"id": 7, "start_node": 1, "end_node": 5, "e_gpa": 200, "area": 0.0015}
+    ]
+  },
+  "solution": {
+    "answer": "El nodo 2 se desplaza 13,333 mm hacia arriba.",
+    "steps": [
+      "Se retira la carga de 20 kN. El nodo 1 queda restringido en X y el nodo 5 en X e Y. La barra 6 tiene un exceso de longitud de 10 mm. Para todas las barras, $A=0{,}0015\\ \\mathrm{m}^2$ y $E=200\\ \\mathrm{GPa}$.",
+      "La cercha isostática acomoda el exceso de longitud con fuerzas axiales reales nulas. Al aplicar una carga virtual unitaria hacia arriba en el nodo 2, el equilibrio de ese nodo da $0{,}6n_5+1=0$ y $-0{,}8n_5-n_6=0$. Por tanto, $n_6=4/3$.",
+      "$$u_{2y}=\\sum_e n_e\\,\\Delta L_{0,e}=n_6\\,\\Delta L_{0,6}$$",
+      "$$u_{2y}=\\frac{4}{3}(10\\ \\mathrm{mm})=+13{,}333\\ \\mathrm{mm}$$"
+    ]
+  }
+}
